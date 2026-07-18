@@ -108,7 +108,7 @@ impl Target {
         let info = processes()?
             .into_iter()
             .find(|p| p.name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| SdkError::Memory(nemclass_memory::MfError::ProcessNotFound))?;
+            .ok_or(SdkError::Memory(nemclass_memory::MfError::ProcessNotFound))?;
         Self::attach_pid(info.id)
     }
 
