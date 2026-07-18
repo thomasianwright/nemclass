@@ -147,7 +147,7 @@ impl PointerField {
 
         let cid = self.class_id.get()?;
         if let Some(class) = ctx.class_list.by_id(cid) {
-            let rng = Rng::with_seed(unsafe { transmute(ctx.current_id) });
+            let rng = std::cell::RefCell::new(Rng::with_seed(unsafe { transmute(ctx.current_id) }));
 
             let mut inner_ctx = InspectionContext {
                 class_list: ctx.class_list,
@@ -165,7 +165,7 @@ impl PointerField {
 
             #[allow(clippy::single_match)]
             match class.fields.iter().fold(None, |r, f| {
-                inner_ctx.current_id = Id::new(rng.u64(..));
+                inner_ctx.current_id = Id::new(rng.borrow_mut().u64(..));
                 r.or(f.draw(ui, &mut inner_ctx))
             }) {
                 Some(other) => response = Some(other),

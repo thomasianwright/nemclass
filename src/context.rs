@@ -6,6 +6,7 @@ use crate::{
 use eframe::egui::Id;
 use egui_notify::Toasts;
 use fastrand::Rng;
+use std::cell::RefCell;
 
 pub struct InspectionContext<'a> {
     pub selection: Option<Selection>,
@@ -13,7 +14,7 @@ pub struct InspectionContext<'a> {
 
     pub current_id: Id,
     pub parent_id: Id,
-    pub level_rng: &'a Rng,
+    pub level_rng: &'a RefCell<Rng>,
 
     pub address: usize,
     pub offset: usize,

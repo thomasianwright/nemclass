@@ -54,7 +54,7 @@ impl<const N: usize> HexField<N> {
 
     fn byte_view(&self, ctx: &mut InspectionContext, job: &mut LayoutJob, buf: &[u8; N]) {
         for (i, b) in buf.iter().enumerate() {
-            let rng = fastrand::Rng::with_seed(*b as _);
+            let mut rng = fastrand::Rng::with_seed(*b as _);
             let color = if *b == 0 {
                 Color32::DARK_GRAY
             } else {
