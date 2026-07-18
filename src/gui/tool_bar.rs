@@ -1,4 +1,4 @@
-use super::{GeneratorWindow, ProcessAttachWindow, SpiderWindow};
+use super::{GeneratorWindow, ProcessAttachWindow, ScriptConsole, SpiderWindow};
 use crate::{
     class::ClassList,
     field::{FieldKind, FloatWidth},
@@ -40,6 +40,7 @@ pub struct ToolBarPanel {
     ps_attach_window: ProcessAttachWindow,
     generator_window: GeneratorWindow,
     spider_window: SpiderWindow,
+    script_console: ScriptConsole,
     state: StateRef,
 }
 
@@ -50,6 +51,7 @@ impl ToolBarPanel {
             ps_attach_window: ProcessAttachWindow::new(state),
             generator_window: GeneratorWindow::new(state),
             spider_window: SpiderWindow::new(state),
+            script_console: ScriptConsole::new(state),
         }
     }
 
@@ -62,6 +64,7 @@ impl ToolBarPanel {
         }
 
         self.generator_window.show(ctx);
+        self.script_console.show(ctx);
         if let Err(e) = self.spider_window.show(ctx) {
             self.state.borrow_mut().toasts.error(e.to_string());
         }
@@ -95,11 +98,15 @@ impl ToolBarPanel {
                         self.spider_window.toggle();
                     }
 
+                    if ui.button("Script").clicked() {
+                        self.script_console.toggle();
+                    }
+
                     ui.add_space(4.);
                     ui.separator();
                     ui.add_space(4.);
 
-                    self.status_ui(ui, &mut response);
+                    self.status_ui(ui);
 
                     ui.add_space(4.);
                     ui.separator();
@@ -249,7 +256,7 @@ impl ToolBarPanel {
         }
     }
 
-    fn status_ui(&mut self, ui: &mut Ui, response: &mut Option<ToolBarResponse>) {
+    fn status_ui(&mut self, ui: &mut Ui) {
         if let Some((proc_name, proc_id)) = self
             .state
             .borrow()
@@ -259,16 +266,7 @@ impl ToolBarPanel {
             .as_ref()
             .map(|p| (p.name(), p.id()))
         {
-            match proc_name {
-                Ok(name) => _ = ui.label(format!("Status: Attached to {} - {}", name, proc_id)),
-                Err(e) => {
-                    self.state
-                        .borrow_mut()
-                        .toasts
-                        .error(format!("Failed to get process name: {e}"));
-                    *response = Some(ToolBarResponse::ProcessDetach);
-                }
-            };
+            ui.label(format!("Status: Attached to {} - {}", proc_name, proc_id));
         } else {
             ui.label("Status: Detached");
         }

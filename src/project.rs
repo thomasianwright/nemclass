@@ -1,41 +1,28 @@
-/// This module contains structures that serialize/deserialize project data(i.e. classes).
+//! Converts between the GUI's live `ClassList` and the headless SDK schema
+//! ([`nemclass_sdk::Project`] / [`TypeDef`] / [`FieldDef`]), and (de)serializes
+//! it as RON. The schema types are the on-disk project format.
 use crate::{
     class::{Class, ClassId, ClassList},
-    field::{allocate_padding, CodegenData, Field, FieldKind, PointerField},
+    field::{allocate_padding, CodegenData, Field, FieldKind, FieldKindExt, PointerField},
     generator::Generator,
 };
-use serde::{Deserialize, Serialize};
+use nemclass_sdk::{FieldDef, Project, TypeDef};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct DataField {
-    name: String,
-    offset: usize,
-    kind: FieldKind,
-    metadata: Option<String>,
-}
+/// The flat serialized field type (SDK's [`FieldDef`]).
+pub(crate) use nemclass_sdk::FieldDef as DataField;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DataClass {
-    name: String,
-    fields: Vec<DataField>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct ProjectData {
-    classes: Vec<DataClass>,
-}
-
+/// Drives the [`Generator`] interface to accumulate SDK [`TypeDef`]s (with
+/// running offsets) instead of emitting source text.
 #[derive(Default, Clone)]
 struct ProjectDataGenerator {
-    classes: Vec<DataClass>,
+    classes: Vec<TypeDef>,
     offset: usize,
     last_offset: usize,
 }
 
 impl Generator for &mut ProjectDataGenerator {
     fn begin_class(&mut self, name: &str) {
-        self.classes.push(DataClass {
+        self.classes.push(TypeDef {
             name: name.into(),
             fields: vec![],
         });
@@ -44,7 +31,7 @@ impl Generator for &mut ProjectDataGenerator {
     fn add_field(&mut self, name: &str, kind: FieldKind, metadata: Option<&str>) {
         let size = kind.size();
 
-        self.classes.last_mut().unwrap().fields.push(DataField {
+        self.classes.last_mut().unwrap().fields.push(FieldDef {
             metadata: metadata.map(|s| s.to_owned()),
             name: name.to_owned(),
             offset: self.offset,
@@ -69,6 +56,10 @@ impl Generator for &mut ProjectDataGenerator {
     }
 }
 
+/// Project data: a set of class layouts, serialized as RON. Wraps the SDK
+/// [`Project`] with the GUI's `ClassList` conversion.
+pub struct ProjectData(Project);
+
 impl ProjectData {
     pub fn store(classes: &[Class]) -> Self {
         let mut datagen = ProjectDataGenerator::default();
@@ -83,19 +74,18 @@ impl ProjectData {
             dynam.end_class();
         }
 
-        Self {
-            classes: datagen.classes,
-        }
+        Self(Project::from_types(datagen.classes))
     }
 
     pub fn load(self) -> ClassList {
         let mut list = ClassList::EMPTY;
 
-        self.classes
+        self.0
+            .classes
             .iter()
             .for_each(|cl| _ = list.add_empty_class(cl.name.to_string()));
 
-        self.classes.into_iter().for_each(|mut dataclass| {
+        self.0.classes.into_iter().for_each(|mut dataclass| {
             dataclass.fields.sort_by_key(|f| f.offset);
 
             let cid = list.by_name(&dataclass.name).unwrap().id();
@@ -156,12 +146,12 @@ impl ProjectData {
     }
 
     pub fn from_str(text: &str) -> Option<Self> {
-        ron::from_str(text).ok()
+        Project::from_ron(text).ok().map(Self)
     }
 
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
-        ron::to_string(self).unwrap()
+        self.0.to_ron().unwrap_or_default()
     }
 }
 
@@ -250,7 +240,7 @@ mod tests {
     use super::{load_fields_into, store_fields, DataField, ProjectData};
     use crate::{
         class::ClassList,
-        field::{FieldKind, FloatWidth},
+        field::{FieldKind, FieldKindExt, FloatWidth},
     };
 
     /// Vector/matrix fields must survive a full project save/load through RON, preserving their

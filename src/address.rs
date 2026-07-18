@@ -1,12 +1,26 @@
-//! This module parses addresses.
-//! All numbers are parsed as hexidecimals.
-//! Expected Syntax:
-//! * `[0xAABB]` loads 8 bytes at address `0xAABB`.
-//! * `<module.exe>` loads address of the `module.exe`.
-//! Allowed operations are would be: `+`, `-`, `*`.
+//! Address parsing. Delegates to the SDK's address-expression evaluator so plain
+//! hex and arithmetic (`0x10+0x20`) resolve without a target. Module/deref syntax
+//! (`<mod>`, `[expr]`) needs a live target and is available through
+//! `Target::eval` / the scripting API instead.
 
-// TODO(ItsEthra): Parse address (with `nom` crate maybe?) to allow special syntax like adding, dereferencing
-// pointers and getting modules' addresses.
+use nemclass_sdk::offset::{eval, AddrEnv};
+use nemclass_sdk::{Result as SdkResult, SdkError};
+
+/// An [`AddrEnv`] with no attached process: numbers and arithmetic resolve,
+/// module lookups and dereferences fail.
+struct NoTarget;
+
+impl AddrEnv for NoTarget {
+    fn module_base(&self, name: &str) -> SdkResult<usize> {
+        Err(SdkError::ModuleNotFound(name.into()))
+    }
+
+    fn deref(&self, _address: usize) -> Option<usize> {
+        None
+    }
+}
+
+/// Parses an address expression. All bare numbers are hexadecimal (`0x` optional).
 pub fn parse_address(addr: &str) -> Option<usize> {
-    usize::from_str_radix(addr.strip_prefix("0x").unwrap_or(addr), 16).ok()
+    eval(&NoTarget, addr).ok()
 }

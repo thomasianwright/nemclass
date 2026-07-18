@@ -1,7 +1,7 @@
 use crate::{
     class::ClassId,
     context::Selection,
-    field::{allocate_padding, FieldId, FieldKind},
+    field::{allocate_padding, FieldId, FieldKind, FieldKindExt},
     gui::{ClassListPanel, InspectorPanel, ToolBarPanel, ToolBarResponse},
     process::Process,
     state::{GlobalState, StateRef},
@@ -169,17 +169,13 @@ impl App for YClassApp {
                             ctx.send_viewport_cmd(ViewportCommand::Title(format!(
                                 "YClass - Attached to {pid}"
                             )));
-                            if let Process::Internal((op, _)) = &proc {
-                                match op.name() {
-                                    Ok(name) => {
-                                        state.config.last_attached_process_name = Some(name);
-                                        state.config.save();
-                                    }
-                                    Err(e) => {
-                                        _ = state
-                                            .toasts
-                                            .error(format!("Failed to get process name: {e}"))
-                                    }
+                            // Remember the native process name for quick re-attach
+                            // (managed plugins don't expose a real name).
+                            if !proc.is_managed() {
+                                let name = proc.name();
+                                if !name.is_empty() {
+                                    state.config.last_attached_process_name = Some(name);
+                                    state.config.save();
                                 }
                             }
 

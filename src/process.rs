@@ -1,127 +1,41 @@
 use crate::config::YClassConfig;
-use libloading::Library;
-use nemclass_memory::external::{MemoryRegion, OwnedProcess};
-use std::fs;
+use nemclass_sdk::Target;
+use std::{fs, ops::Deref};
 
-pub struct ManagedExtension {
-    #[allow(dead_code)]
-    lib: Library,
-    // process id
-    pid: u32,
-
-    attach: fn(u32) -> u32,
-    read: fn(usize, *mut u8, usize) -> u32,
-    write: fn(usize, *const u8, usize) -> u32,
-    can_read: fn(usize) -> bool,
-    detach: fn(),
-}
-
-impl Drop for ManagedExtension {
-    fn drop(&mut self) {
-        (self.detach)();
-    }
-}
-
-pub enum Process {
-    Internal((OwnedProcess, Vec<MemoryRegion>)),
-    Managed(ManagedExtension),
-}
+/// GUI-side process handle: a thin wrapper over the headless [`Target`] that
+/// applies the app's plugin-path policy on attach. All memory operations are
+/// inherited from [`Target`] via [`Deref`].
+pub struct Process(Target);
 
 impl Process {
+    /// Attaches to `pid`. If a plugin library is configured (or the default
+    /// `plugin.ycpl` exists), memory goes through that managed plugin; otherwise
+    /// the OS-native backend is used.
     pub fn attach(pid: u32, config: &YClassConfig) -> eyre::Result<Self> {
-        let (path, modified) = (
-            config
-                .plugin_path
-                .clone()
-                .unwrap_or_else(|| "plugin.ycpl".into()),
-            config.plugin_path.is_some(),
-        );
+        let path = config
+            .plugin_path
+            .clone()
+            .unwrap_or_else(|| "plugin.ycpl".into());
+        let plugin_required = config.plugin_path.is_some();
 
-        let metadata = fs::metadata(&path);
-        Ok(if metadata.is_ok() {
-            let lib = unsafe { Library::new(&path)? };
-            let attach = unsafe { *lib.get::<fn(u32) -> u32>(b"yc_attach")? };
-            let read = unsafe { *lib.get::<fn(usize, *mut u8, usize) -> u32>(b"yc_read")? };
-            let write = unsafe { *lib.get::<fn(usize, *const u8, usize) -> u32>(b"yc_write")? };
-            let can_read = unsafe { *lib.get::<fn(usize) -> bool>(b"yc_can_read")? };
-            let detach = unsafe { *lib.get::<fn()>(b"yc_detach")? };
-
-            let ext = ManagedExtension {
-                pid,
-                lib,
-                attach,
-                read,
-                write,
-                can_read,
-                detach,
-            };
-
-            (ext.attach)(pid);
-
-            Self::Managed(ext)
-        } else if modified {
-            #[allow(clippy::unnecessary_unwrap)]
-            return Err(metadata.unwrap_err().into());
+        let meta = fs::metadata(&path);
+        let target = if meta.is_ok() {
+            Target::attach_managed(pid, path.as_ref())?
+        } else if plugin_required {
+            // A plugin path was explicitly configured but is missing.
+            return Err(meta.unwrap_err().into());
         } else {
-            #[cfg(unix)]
-            let proc = nemclass_memory::external::find_process_by_id(pid)?;
-            #[cfg(windows)]
-            let proc = {
-                use nemclass_memory::types::win::{
-                    PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
-                };
+            Target::attach_pid(pid)?
+        };
 
-                nemclass_memory::external::open_process_by_id(
-                    pid,
-                    false,
-                    PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION,
-                )?
-            };
-
-            let maps = proc.maps()?;
-            Self::Internal((proc, maps))
-        })
+        Ok(Self(target))
     }
+}
 
-    /// Reads `buf.len()` bytes at `address`. Returns `false` if the read failed, in which case
-    /// `buf` may be left with stale/partial contents — callers must not trust it.
-    #[must_use]
-    pub fn read(&self, address: usize, buf: &mut [u8]) -> bool {
-        match self {
-            Self::Internal((op, _)) => op.read_buf(address, buf).is_ok(),
-            // Managed plugins report a status code; `0` means success.
-            Self::Managed(ext) => (ext.read)(address, buf.as_mut_ptr(), buf.len()) == 0,
-        }
-    }
+impl Deref for Process {
+    type Target = Target;
 
-    /// Writes `buf` at `address`. Returns `false` if the write failed.
-    pub fn write(&self, address: usize, buf: &[u8]) -> bool {
-        match self {
-            Self::Internal((op, _)) => op.write_buf(address, buf).is_ok(),
-            Self::Managed(ext) => (ext.write)(address, buf.as_ptr(), buf.len()) == 0,
-        }
-    }
-
-    pub fn id(&self) -> u32 {
-        match self {
-            Self::Internal((op, _)) => op.id(),
-            Self::Managed(ext) => ext.pid,
-        }
-    }
-
-    pub fn can_read(&self, address: usize) -> bool {
-        match self {
-            Self::Internal((_, maps)) => maps
-                .iter()
-                .any(|map| map.from <= address && map.to >= address && map.prot.read()),
-            Self::Managed(ext) => (ext.can_read)(address),
-        }
-    }
-
-    pub fn name(&self) -> eyre::Result<String> {
-        match self {
-            Self::Internal((op, _)) => op.name().map_err(Into::into),
-            Self::Managed(_) => Ok("[MANAGED]".into()),
-        }
+    fn deref(&self) -> &Target {
+        &self.0
     }
 }

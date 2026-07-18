@@ -179,6 +179,12 @@ impl Target {
         self.is_wine
     }
 
+    /// Whether this target is backed by a managed plugin (rather than the OS
+    /// memory APIs).
+    pub fn is_managed(&self) -> bool {
+        matches!(self.backend, Backend::Managed(_))
+    }
+
     /// The target's process id.
     pub fn id(&self) -> u32 {
         match &self.backend {
