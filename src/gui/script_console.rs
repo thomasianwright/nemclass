@@ -11,8 +11,39 @@ use eframe::{
     egui::{Button, Context, TextEdit, Window},
     epaint::FontId,
 };
-use nemclass_scripting::ScriptEngine;
+use nemclass_scripting::{ClassHost, ScriptEngine};
 use std::path::{Path, PathBuf};
+
+/// Bridges scripts to the GUI's live class list, so `nem.set_class_address` and
+/// friends can drive the inspector.
+#[derive(Clone, Copy)]
+struct GuiClassHost(StateRef);
+
+impl ClassHost for GuiClassHost {
+    fn class_names(&self) -> Vec<String> {
+        self.0
+            .try_borrow()
+            .map(|s| s.class_list.classes().iter().map(|c| c.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn set_class_address(&self, name: &str, address: usize) -> bool {
+        if let Ok(s) = self.0.try_borrow() {
+            if let Some(class) = s.class_list.by_name(name) {
+                class.address.set(address);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn class_address(&self, name: &str) -> Option<usize> {
+        self.0
+            .try_borrow()
+            .ok()
+            .and_then(|s| s.class_list.by_name(name).map(|c| c.address.get()))
+    }
+}
 
 const DEFAULT_SCRIPT: &str = r#"-- nem.* scripting API. `PID` is the attached process id (or nil).
 -- Set EXPORT to a project RON string to import classes into the GUI.
@@ -61,6 +92,7 @@ impl ScriptConsole {
 
         // Collect actions inside the closure; apply them after (avoids borrow clashes).
         let mut run = false;
+        let mut new = false;
         let mut save = false;
         let mut load: Option<PathBuf> = None;
         let mut shown = self.shown;
@@ -71,6 +103,7 @@ impl ScriptConsole {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     run = ui.button("Run").clicked();
+                    new = ui.button("New").clicked();
                     ui.separator();
                     ui.label("File:");
                     ui.add(TextEdit::singleline(&mut self.script_name).desired_width(140.0));
@@ -110,6 +143,11 @@ impl ScriptConsole {
 
         self.shown = shown;
 
+        if new {
+            self.script.clear();
+            self.script_name = "untitled.lua".to_owned();
+            self.output.clear();
+        }
         if run {
             self.output.clear();
             Self::run(self.state, &self.script, &mut self.output);
@@ -161,7 +199,7 @@ impl ScriptConsole {
         };
 
         let pid = state.borrow().process.read().as_ref().map(|p| p.id());
-        let (printed, result) = engine.run_console(script, pid);
+        let (printed, result) = engine.run_console_with_host(script, pid, GuiClassHost(state));
         output.push_str(&printed);
 
         match result {

@@ -1,5 +1,6 @@
 //! The [`ScriptEngine`]: owns a Lua state with the `nem` API registered.
 
+use crate::ClassHost;
 use mlua::Lua;
 use std::cell::RefCell;
 use std::path::Path;
@@ -101,5 +102,54 @@ impl ScriptEngine {
 
         let printed = out.borrow().clone();
         (printed, result)
+    }
+
+    /// Like [`run_console`](Self::run_console), but also binds `nem.classes`,
+    /// `nem.set_class_address` and `nem.class_address` to `host` so the script
+    /// can read and drive the embedding app's classes.
+    pub fn run_console_with_host<H: ClassHost + Clone + 'static>(
+        &self,
+        code: &str,
+        pid: Option<u32>,
+        host: H,
+    ) -> (String, Result<Option<String>>) {
+        if let Err(e) = self.register_class_host(host) {
+            return (String::new(), Err(e.into()));
+        }
+        self.run_console(code, pid)
+    }
+
+    /// Installs the `nem.classes` / `nem.set_class_address` / `nem.class_address`
+    /// bindings backed by `host`, replacing the CLI stubs.
+    fn register_class_host<H: ClassHost + Clone + 'static>(&self, host: H) -> mlua::Result<()> {
+        let nem: mlua::Table = self.lua.globals().get("nem")?;
+
+        let h = host.clone();
+        nem.set(
+            "classes",
+            self.lua.create_function(move |_, ()| Ok(h.class_names()))?,
+        )?;
+
+        let h = host.clone();
+        nem.set(
+            "class_address",
+            self.lua
+                .create_function(move |_, name: String| Ok(h.class_address(&name).map(|a| a as i64)))?,
+        )?;
+
+        let h = host;
+        nem.set(
+            "set_class_address",
+            self.lua
+                .create_function(move |_, (name, addr): (String, i64)| {
+                    if h.set_class_address(&name, addr as usize) {
+                        Ok(())
+                    } else {
+                        Err(mlua::Error::RuntimeError(format!("no class named `{name}`")))
+                    }
+                })?,
+        )?;
+
+        Ok(())
     }
 }

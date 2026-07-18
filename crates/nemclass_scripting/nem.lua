@@ -321,6 +321,26 @@ function nem.load_project(ron) end
 function nem.generate(project, lang) end
 
 ------------------------------------------------------------------------------
+-- GUI-only bindings (the GUI script console; error in the headless CLI)
+------------------------------------------------------------------------------
+
+---Names of the classes in the GUI's class list, in list order.
+---@return string[]
+function nem.classes() end
+
+---Set the base address of a class in the GUI's inspector — e.g. after scanning
+---for it — so the inspector updates automatically. Raises if there is no class
+---with that name.
+---@param name string
+---@param address integer
+function nem.set_class_address(name, address) end
+
+---Current base address of a class, or nil if it doesn't exist.
+---@param name string
+---@return integer?
+function nem.class_address(name) end
+
+------------------------------------------------------------------------------
 -- Host-provided globals (set by the GUI console / CLI)
 ------------------------------------------------------------------------------
 

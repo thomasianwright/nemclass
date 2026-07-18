@@ -449,6 +449,20 @@ pub fn register(lua: &Lua) -> LuaResult<()> {
     )?;
     nem.set("kinds", kinds)?;
 
+    // GUI-only bindings. These are overridden with real implementations by
+    // `ScriptEngine::run_console_with_host`; the stubs here give headless runs a
+    // clear error instead of "attempt to call a nil value".
+    for gui_only in ["classes", "set_class_address", "class_address"] {
+        nem.set(
+            gui_only,
+            lua.create_function(move |_, _: mlua::MultiValue| -> LuaResult<mlua::Value> {
+                Err(mlua::Error::RuntimeError(format!(
+                    "nem.{gui_only} is only available in the GUI script console"
+                )))
+            })?,
+        )?;
+    }
+
     lua.globals().set("nem", nem)?;
     Ok(())
 }

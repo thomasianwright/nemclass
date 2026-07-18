@@ -22,6 +22,86 @@ pub use engine::{Result, ScriptEngine, ScriptError};
 
 use std::path::Path;
 
+/// Host hook that lets scripts read and drive the embedding app's classes — e.g.
+/// the GUI's live class list. Registered by
+/// [`ScriptEngine::run_console_with_host`], which backs `nem.classes`,
+/// `nem.set_class_address` and `nem.class_address` with it.
+pub trait ClassHost {
+    /// Names of the host's classes, in list order.
+    fn class_names(&self) -> Vec<String>;
+
+    /// Sets the base address of the class named `name`. Returns `false` if there
+    /// is no such class.
+    fn set_class_address(&self, name: &str, address: usize) -> bool;
+
+    /// The current base address of the class named `name`, if it exists.
+    fn class_address(&self, name: &str) -> Option<usize>;
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::{ClassHost, ScriptEngine};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    #[derive(Clone)]
+    struct MockHost(Rc<RefCell<HashMap<String, usize>>>);
+
+    impl ClassHost for MockHost {
+        fn class_names(&self) -> Vec<String> {
+            let mut v: Vec<_> = self.0.borrow().keys().cloned().collect();
+            v.sort();
+            v
+        }
+        fn set_class_address(&self, name: &str, address: usize) -> bool {
+            match self.0.borrow_mut().get_mut(name) {
+                Some(slot) => {
+                    *slot = address;
+                    true
+                }
+                None => false,
+            }
+        }
+        fn class_address(&self, name: &str) -> Option<usize> {
+            self.0.borrow().get(name).copied()
+        }
+    }
+
+    #[test]
+    fn host_bindings_read_and_write_classes() {
+        let host = MockHost(Rc::new(RefCell::new(HashMap::from([("Player".to_string(), 0usize)]))));
+        let engine = ScriptEngine::new().unwrap();
+        let (_out, res) = engine.run_console_with_host(
+            r#"
+                assert(#nem.classes() == 1, "expected one class")
+                nem.set_class_address("Player", 0xDEAD0000)
+                EXPORT = tostring(nem.class_address("Player"))
+            "#,
+            None,
+            host.clone(),
+        );
+        let export = res.unwrap();
+        assert_eq!(host.0.borrow()["Player"], 0xDEAD0000);
+        assert_eq!(export.as_deref(), Some(format!("{}", 0xDEAD0000u64).as_str()));
+    }
+
+    #[test]
+    fn set_missing_class_errors() {
+        let host = MockHost(Rc::new(RefCell::new(HashMap::new())));
+        let engine = ScriptEngine::new().unwrap();
+        let (_out, res) =
+            engine.run_console_with_host(r#"nem.set_class_address("Nope", 1)"#, None, host);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn gui_bindings_error_without_host() {
+        let engine = ScriptEngine::new().unwrap();
+        assert!(engine.run_str(r#"nem.classes()"#).is_err());
+    }
+}
+
 #[cfg(test)]
 mod editor_support_tests {
     use super::{write_editor_support, DEFINITIONS};

@@ -18,6 +18,7 @@ Rust/C++ code generation.
   - [Type inference](#type-inference)
   - [Type declarations & code generation](#type-declarations--code-generation)
   - [Field kinds (`nem.kinds`)](#field-kinds-nemkinds)
+  - [GUI-only bindings](#gui-only-bindings)
 - [Host-provided globals](#host-provided-globals)
 - [Error handling](#error-handling)
 - [Value & numeric notes](#value--numeric-notes)
@@ -241,6 +242,27 @@ Values passed to `class:field(...)`:
 | Matrix | `nem.kinds.mat(rows, cols, "f32"|"f64")` e.g. `mat(4, 4, "f32")` |
 
 A kind value also has `:name()` (e.g. `"Vec3f"`) and `:size()` (bytes).
+
+### GUI-only bindings
+
+These are available **only in the GUI script console** (they reach into the
+live class list); in the headless CLI they raise a clear error. Use them to
+automate the inspector — e.g. scan for a structure and point a class at it.
+
+```lua
+nem.classes()                          --> { "Player", "Enemy", ... }
+nem.class_address("Player")            --> integer | nil (current base)
+nem.set_class_address("Player", addr)  -- move the class's base (raises if no such class)
+```
+
+Example — find the local player and drive the `Player` class:
+
+```lua
+local proc = nem.open(PID)
+local hits = proc:scan(nem.pattern("48 8B 05 ?? ?? ?? ?? 48 85 C0"), { module = "game.exe" })
+local player = proc:read_ptr(proc:rip(hits[1] + 3, hits[1] + 7))
+nem.set_class_address("Player", player)   -- inspector now shows the player struct
+```
 
 ## Host-provided globals
 
