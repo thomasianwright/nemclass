@@ -112,6 +112,35 @@ impl Target {
         Self::attach_pid(info.id)
     }
 
+    /// Attaches according to an [`AutoAttach`](crate::project::AutoAttach) spec:
+    /// finds a process named `process_name`, and — when `module_name` is set —
+    /// picks the instance that has that module loaded (e.g. the Wine process
+    /// actually running the target `.exe`/`.dll`).
+    pub fn from_auto_attach(spec: &crate::project::AutoAttach) -> Result<Self> {
+        let candidates: Vec<u32> = processes()?
+            .into_iter()
+            .filter(|p| p.name.eq_ignore_ascii_case(&spec.process_name))
+            .map(|p| p.id)
+            .collect();
+
+        if candidates.is_empty() {
+            return Err(SdkError::Memory(nemclass_memory::MfError::ProcessNotFound));
+        }
+
+        let Some(module) = &spec.module_name else {
+            return Self::attach_pid(candidates[0]);
+        };
+
+        for pid in candidates {
+            if let Ok(target) = Self::attach_pid(pid) {
+                if target.module(module).is_ok() {
+                    return Ok(target);
+                }
+            }
+        }
+        Err(SdkError::ModuleNotFound(module.clone()))
+    }
+
     fn from_native(proc: OwnedProcess) -> Result<Self> {
         let maps = proc.maps()?;
         let pointer_size = proc.pointer_size();

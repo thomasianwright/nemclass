@@ -19,6 +19,9 @@ pub use types::{FieldKind, FloatWidth};
 pub mod schema;
 pub use schema::{FieldDef, Project, TypeBuilder, TypeDef};
 
+pub mod project;
+pub use project::{AutoAttach, LoadedProject, Manifest};
+
 pub mod generator;
 pub use generator::{generate, Generator, Lang};
 

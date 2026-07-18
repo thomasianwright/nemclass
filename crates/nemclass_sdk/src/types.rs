@@ -134,6 +134,37 @@ impl FieldKind {
         }
     }
 
+    /// The compact string form used in TOML class files (e.g. `"I32"`, `"Vec3f"`,
+    /// `"Mat4x4d"`, `"Hex32"`, `"Ptr"`). This is exactly [`Self::display_name`].
+    pub fn to_kind_string(&self) -> String {
+        self.display_name().into_owned()
+    }
+
+    /// Parses the compact string form produced by [`Self::to_kind_string`].
+    pub fn from_kind_string(s: &str) -> Option<Self> {
+        use FieldKind::*;
+        Some(match s {
+            "I8" => I8,
+            "I16" => I16,
+            "I32" => I32,
+            "I64" => I64,
+            "U8" => U8,
+            "U16" => U16,
+            "U32" => U32,
+            "U64" => U64,
+            "F32" => F32,
+            "F64" => F64,
+            "Bool" => Bool,
+            "Ptr" => Ptr,
+            "StrPtr" => StrPtr,
+            "Hex8" => Unk8,
+            "Hex16" => Unk16,
+            "Hex32" => Unk32,
+            "Hex64" => Unk64,
+            other => return parse_vec_mat(other),
+        })
+    }
+
     /// Size in bytes, assuming [`DEFAULT_PTR_SIZE`] for pointer kinds. Use
     /// [`Self::size_with_ptr`] when a target's real pointer width is known.
     pub fn size(&self) -> usize {
@@ -155,9 +186,64 @@ impl FieldKind {
     }
 }
 
+/// Splits a `Vec`/`Mat` suffix into its dimensions text and float width, e.g.
+/// `"3f"` -> `("3", F32)`, `"4x4d"` -> `("4x4", F64)`.
+fn split_width(s: &str) -> Option<(&str, FloatWidth)> {
+    let width = match s.chars().last()? {
+        'f' => FloatWidth::F32,
+        'd' => FloatWidth::F64,
+        _ => return None,
+    };
+    Some((&s[..s.len() - 1], width))
+}
+
+/// Parses the vector/matrix kind strings: `Vec{N}{f|d}` and `Mat{R}x{C}{f|d}`.
+fn parse_vec_mat(s: &str) -> Option<FieldKind> {
+    if let Some(rest) = s.strip_prefix("Vec") {
+        let (num, width) = split_width(rest)?;
+        return Some(FieldKind::Vector {
+            components: num.parse().ok()?,
+            width,
+        });
+    }
+    if let Some(rest) = s.strip_prefix("Mat") {
+        let (dims, width) = split_width(rest)?;
+        let (rows, cols) = dims.split_once('x')?;
+        return Some(FieldKind::Matrix {
+            rows: rows.parse().ok()?,
+            cols: cols.parse().ok()?,
+            width,
+        });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::{FieldKind, FloatWidth};
+
+    #[test]
+    fn kind_string_roundtrip() {
+        let kinds = [
+            FieldKind::I32,
+            FieldKind::U8,
+            FieldKind::F64,
+            FieldKind::Bool,
+            FieldKind::Ptr,
+            FieldKind::StrPtr,
+            FieldKind::Unk32,
+            FieldKind::Vector { components: 3, width: FloatWidth::F32 },
+            FieldKind::Vector { components: 4, width: FloatWidth::F64 },
+            FieldKind::Matrix { rows: 4, cols: 4, width: FloatWidth::F32 },
+            FieldKind::Matrix { rows: 3, cols: 4, width: FloatWidth::F64 },
+        ];
+        for k in kinds {
+            let s = k.to_kind_string();
+            assert_eq!(FieldKind::from_kind_string(&s), Some(k), "roundtrip failed for {s}");
+        }
+        assert_eq!(FieldKind::from_kind_string("Nope"), None);
+        assert_eq!(FieldKind::from_kind_string("Vec9q"), None);
+    }
 
     #[test]
     fn vector_matrix_sizes() {

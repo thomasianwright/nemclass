@@ -137,18 +137,9 @@ impl<E: AddrEnv> Parser<'_, E> {
                 self.expect(b')')?;
                 Ok(inner)
             }
-            Some(b'<') => {
-                self.pos += 1;
-                let start = self.pos;
-                while self.pos < self.src.len() && self.src[self.pos] != b'>' {
-                    self.pos += 1;
-                }
-                let name = std::str::from_utf8(&self.src[start..self.pos])
-                    .map_err(|_| SdkError::Expr("invalid module name".into()))?
-                    .to_owned();
-                self.expect(b'>')?;
-                self.env.module_base(&name)
-            }
+            // Module base, either quoted (`"game.exe"`) or angle-bracketed (`<game.exe>`).
+            Some(b'"') => self.module_ref(b'"'),
+            Some(b'<') => self.module_ref(b'>'),
             Some(c) if c.is_ascii_hexdigit() => self.number(),
             Some(c) => Err(SdkError::Expr(format!(
                 "unexpected `{}` at byte {}",
@@ -156,6 +147,21 @@ impl<E: AddrEnv> Parser<'_, E> {
             ))),
             None => Err(SdkError::Expr("unexpected end of expression".into())),
         }
+    }
+
+    /// Reads a module name terminated by `close` (the opening delimiter has
+    /// already been consumed) and resolves it to the module's base address.
+    fn module_ref(&mut self, close: u8) -> Result<usize> {
+        self.pos += 1;
+        let start = self.pos;
+        while self.pos < self.src.len() && self.src[self.pos] != close {
+            self.pos += 1;
+        }
+        let name = std::str::from_utf8(&self.src[start..self.pos])
+            .map_err(|_| SdkError::Expr("invalid module name".into()))?
+            .to_owned();
+        self.expect(close)?;
+        self.env.module_base(&name)
     }
 
     fn number(&mut self) -> Result<usize> {
@@ -229,10 +235,15 @@ mod tests {
     #[test]
     fn module_and_deref() {
         let e = env();
+        // Angle-bracket form.
         assert_eq!(eval(&e, "<game.exe>").unwrap(), 0x1_0000);
         assert_eq!(eval(&e, "<game.exe>+0x10").unwrap(), 0x1_0010);
         assert_eq!(eval(&e, "[<game.exe>+0x10]").unwrap(), 0xDEAD_0000);
         assert_eq!(eval(&e, "[[<game.exe>+0x10]+8]").unwrap(), 0xBEEF_0000);
+        // Quoted form (equivalent).
+        assert_eq!(eval(&e, "\"game.exe\"+0x10").unwrap(), 0x1_0010);
+        assert_eq!(eval(&e, "[\"game.exe\"+0x1A2B]").is_err(), true); // unmapped deref
+        assert_eq!(eval(&e, "[\"game.exe\"+0x10]+0x0").unwrap(), 0xDEAD_0000);
     }
 
     #[test]

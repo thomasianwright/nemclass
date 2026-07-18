@@ -35,7 +35,17 @@ pub enum SdkError {
     #[error("module not found: {0}")]
     ModuleNotFound(String),
 
-    /// Project (RON) serialization/deserialization failed.
+    /// Project (RON/TOML) serialization/deserialization failed.
     #[error("project (de)serialization failed: {0}")]
     Project(String),
+
+    /// A filesystem operation on a project folder failed.
+    #[error("io error: {0}")]
+    Io(String),
+}
+
+impl From<std::io::Error> for SdkError {
+    fn from(e: std::io::Error) -> Self {
+        SdkError::Io(e.to_string())
+    }
 }
