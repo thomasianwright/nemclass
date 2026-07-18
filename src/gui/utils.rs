@@ -1,5 +1,48 @@
-use eframe::egui::TextBuffer;
+use eframe::egui::{Context, TextBuffer, Ui, ViewportBuilder, ViewportId};
 use std::{ops::Range, str::FromStr};
+
+/// Renders `add_contents` in its own OS-level window (an egui *viewport*)
+/// instead of an in-app `Window`, which egui always clamps to the main window.
+///
+/// Returns `None` when `shown` is false (nothing is rendered). Otherwise returns
+/// `Some((closed, result))`, where `closed` is true when the user pressed the
+/// native window's close button — callers mirror that into their own `shown`
+/// flag — and `result` is whatever `add_contents` returned.
+pub fn floating_window<R>(
+    ctx: &Context,
+    shown: bool,
+    id: &str,
+    title: &str,
+    default_size: [f32; 2],
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<(bool, R)> {
+    if !shown {
+        return None;
+    }
+
+    let mut closed = false;
+    // `show_viewport_immediate` wants an `FnMut`; the `Option` lets us call the
+    // `FnOnce` contents exactly once and hand its result back out.
+    let mut add_contents = Some(add_contents);
+    let mut result = None;
+
+    ctx.show_viewport_immediate(
+        ViewportId::from_hash_of(id),
+        ViewportBuilder::default()
+            .with_title(title)
+            .with_inner_size(default_size),
+        |ui, _class| {
+            if ui.input(|i| i.viewport().close_requested()) {
+                closed = true;
+            }
+            if let Some(add) = add_contents.take() {
+                result = Some(add(ui));
+            }
+        },
+    );
+
+    result.map(|r| (closed, r))
+}
 
 pub type TextEditFromStrBind<T> = TextEditBind<T, <T as FromStr>::Err>;
 

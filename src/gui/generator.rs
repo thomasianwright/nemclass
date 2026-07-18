@@ -1,6 +1,8 @@
-use crate::{field::CodegenData, generator::AvailableGenerator, state::StateRef};
+use crate::{
+    field::CodegenData, generator::AvailableGenerator, gui::floating_window, state::StateRef,
+};
 use eframe::{
-    egui::{ComboBox, Context, FontSelection, TextEdit, Window},
+    egui::{ComboBox, Context, FontSelection, TextEdit},
     epaint::FontId,
 };
 
@@ -26,14 +28,14 @@ impl GeneratorWindow {
     }
 
     pub fn show(&mut self, ctx: &Context) {
-        if !self.shown {
-            return;
-        }
-
-        Window::new("Class generator")
-            .open(&mut self.shown)
-            .constrain(false)
-            .show(ctx, |ui| {
+        let shown = self.shown;
+        let response = floating_window(
+            ctx,
+            shown,
+            "nem_generator_viewport",
+            "Class generator",
+            [420.0, 360.0],
+            |ui| {
                 ComboBox::new("_generator", "Current generator")
                     .selected_text(self.current_generator.label())
                     .show_ui(ui, |ui| {
@@ -81,6 +83,11 @@ impl GeneratorWindow {
                         .font(FontSelection::FontId(FontId::monospace(12.)))
                         .show(ui);
                 }
-            });
+            },
+        );
+
+        if let Some((true, ())) = response {
+            self.shown = false;
+        }
     }
 }

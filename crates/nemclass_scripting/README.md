@@ -36,9 +36,10 @@ nemclass-cli run scan.lua --project ./my_project   # resolve from scripts/, auto
 ```
 
 **GUI console** — the *Script* button opens a console that runs `nem.*` scripts,
-captures `print`, exposes the attached process id as `PID`, and imports a project
-you assign to the `EXPORT` global into the live class list (undoable). Scripts
-are loaded from / saved to the open project's `scripts/` folder.
+captures `print`, exposes the attached process id as `PID`, and merges a project
+you assign to the `EXPORT` global into the live class list — updating same-named
+classes in place, adding new ones, and keeping the rest (undoable). Scripts are
+loaded from / saved to the open project's `scripts/` folder.
 
 **Embedded** (Rust):
 
@@ -220,12 +221,18 @@ nem.generate(proj, "cpp")   --> string   (same as proj:generate)
 local proj = nem.load_project(ron_string)   -- parse a Project from RON
 ```
 
-In the **GUI console**, assign a project's RON to the `EXPORT` global to import
-the declared classes into the live class list:
+In the **GUI console**, assign a project's RON to the `EXPORT` global to merge
+the declared classes into the live class list. A class whose name already exists
+is **updated in place** (its fields are replaced, its address kept); a new name
+is **added**; classes you don't mention are **left untouched**:
 
 ```lua
 EXPORT = proj:to_ron()
 ```
+
+So to update one class, export just that class — the others survive. Note there
+is no binding to read an existing class's fields back, so a class you redefine is
+replaced wholesale rather than field-merged.
 
 ### Field kinds (`nem.kinds`)
 
@@ -273,7 +280,7 @@ The host (CLI / GUI console) sets these before running a script:
 | `PID` | integer \| nil | `--pid`, or a project's resolved auto-attach |
 | `PNAME` | string \| nil | `--name` |
 | `PROJECT` | string \| nil | `--project DIR` (the project directory) |
-| `EXPORT` | string (write) | *you* set it; the GUI console imports it as a project |
+| `EXPORT` | string (write) | *you* set it; the GUI console merges it into the class list (update-or-add by name) |
 
 A portable attach line:
 

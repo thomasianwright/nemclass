@@ -3,6 +3,7 @@ use crate::{
     address::parse_address,
     field::FieldKind,
     gui::{
+        floating_window,
         spider::{bytes_to_value, parse_kind_to_value, SearchOptions},
         TextEditBind, TextEditFromStrBind,
     },
@@ -11,7 +12,7 @@ use crate::{
     value::Value,
 };
 use eframe::{
-    egui::{Button, ComboBox, Context, RichText, TextEdit, Ui, ViewportBuilder, ViewportId},
+    egui::{Button, ComboBox, Context, RichText, TextEdit, Ui},
     epaint::{vec2, Color32, FontId},
 };
 use egui_extras::{Column, TableBuilder};
@@ -126,27 +127,16 @@ impl SpiderWindow {
             ScannerReport::Idle => {}
         }
 
-        if !self.shown {
-            return Ok(None);
-        }
-
-        // Render the spider in its own OS-level viewport so it floats free of
-        // the main window instead of being clamped inside it.
-        let builder = ViewportBuilder::default()
-            .with_title("Structure spider")
-            .with_inner_size([440.0, 560.0])
-            .with_min_inner_size([320.0, 200.0]);
-
-        ctx.show_viewport_immediate(
-            ViewportId::from_hash_of("structure_spider_viewport"),
-            builder,
-            |ui, _class| {
-                // Honour the native window's close button.
-                if ui.input(|i| i.viewport().close_requested()) {
-                    self.shown = false;
-                    return Ok(());
-                }
-
+        let shown = self.shown;
+        // Render the spider in its own OS-level window so it floats free of the
+        // main window instead of being clamped inside it.
+        let Some((closed, result)) = floating_window(
+            ctx,
+            shown,
+            "structure_spider_viewport",
+            "Structure spider",
+            [440.0, 560.0],
+            |ui| -> eyre::Result<()> {
                 let state = &mut *self.state.borrow_mut();
 
                 let process_lock = state.process.read();
@@ -304,8 +294,14 @@ impl SpiderWindow {
 
                 Ok(())
             },
-        )
-        .map(Some)
+        ) else {
+            return Ok(None);
+        };
+
+        if closed {
+            self.shown = false;
+        }
+        result.map(Some)
     }
 
     fn display_results(&mut self, process: &Process, ui: &mut Ui) {

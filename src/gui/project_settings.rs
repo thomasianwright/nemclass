@@ -1,8 +1,8 @@
 //! Project settings window — edits the `.nemproj` manifest (name and the
 //! optional auto-attach configuration) and writes it back to the project folder.
 
-use crate::state::StateRef;
-use eframe::egui::{Context, TextEdit, Window};
+use crate::{gui::floating_window, state::StateRef};
+use eframe::egui::{Context, TextEdit};
 use nemclass_sdk::{AutoAttach, Manifest};
 
 pub struct ProjectSettings {
@@ -65,15 +65,16 @@ impl ProjectSettings {
 
         let has_project = self.state.borrow().last_opened_project.is_some();
 
-        let mut shown = self.shown;
         let mut save = false;
         let mut attach_now = false;
 
-        Window::new("Project settings")
-            .open(&mut shown)
-            .constrain(false)
-            .resizable(false)
-            .show(ctx, |ui| {
+        let response = floating_window(
+            ctx,
+            true,
+            "nem_project_settings_viewport",
+            "Project settings",
+            [360.0, 320.0],
+            |ui| {
                 if !has_project {
                     ui.label("No project is open.");
                     return;
@@ -106,9 +107,12 @@ impl ProjectSettings {
                     save = ui.button("Save").clicked();
                     attach_now = ui.button("Save & attach now").clicked();
                 });
-            });
+            },
+        );
 
-        self.shown = shown;
+        if let Some((true, ())) = response {
+            self.shown = false;
+        }
         if !self.shown {
             self.synced = false;
         }

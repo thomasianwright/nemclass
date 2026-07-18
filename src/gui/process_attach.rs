@@ -1,7 +1,7 @@
-use crate::state::StateRef;
+use crate::{gui::floating_window, state::StateRef};
 use eframe::{
-    egui::{Context, RichText, ScrollArea, TextEdit, Window},
-    epaint::{vec2, FontId},
+    egui::{Context, RichText, ScrollArea, TextEdit},
+    epaint::FontId,
 };
 use nemclass_memory::external::{ProcessEntry, ProcessIterator};
 
@@ -29,17 +29,15 @@ impl ProcessAttachWindow {
     }
 
     pub fn show(&mut self, ctx: &Context) -> Option<u32> {
-        if !self.shown {
-            return None;
-        }
-
+        let shown = self.shown;
         let mut attach_pid = None;
-        Window::new("Attach to process")
-            .collapsible(false)
-            .open(&mut self.shown)
-            .constrain(false)
-            .default_size(vec2(180., 320.))
-            .show(ctx, |ui| {
+        let response = floating_window(
+            ctx,
+            shown,
+            "nem_process_attach_viewport",
+            "Attach to process",
+            [220.0, 360.0],
+            |ui| {
                 ui.vertical_centered_justified(|ui| {
                     let r = TextEdit::singleline(&mut self.filter)
                         .desired_width(f32::INFINITY)
@@ -72,7 +70,12 @@ impl ProcessAttachWindow {
                         }
                     });
                 });
-            });
+            },
+        );
+
+        if let Some((true, ())) = response {
+            self.shown = false;
+        }
 
         attach_pid
     }

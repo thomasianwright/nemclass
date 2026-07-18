@@ -323,7 +323,9 @@ impl Target {
 
     /// Finds a module by name (case-insensitive).
     pub fn module(&self, name: &str) -> Result<ModuleInfo> {
-        self.modules()?
+        let modules = self.modules()?;
+
+        modules
             .into_iter()
             .find(|m| m.name.eq_ignore_ascii_case(name))
             .ok_or_else(|| SdkError::ModuleNotFound(name.to_owned()))

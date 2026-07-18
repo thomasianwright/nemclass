@@ -1,21 +1,25 @@
 //! A Lua scripting console window. Runs scripts through the headless
 //! [`ScriptEngine`], captures `print` output, exposes the attached process id as
 //! the `PID` global, and — if a script sets the `EXPORT` global to a project RON
-//! string — imports the declared classes into the GUI (undoably).
+//! string — merges the declared classes into the GUI, updating same-named
+//! classes in place and adding new ones while keeping the rest (undoably).
 //!
 //! Scripts are loaded from and saved to the open project's `scripts/` folder, so
 //! they can be version-controlled alongside the project.
 
 use super::completion::{complete, Completion};
-use crate::{project::ProjectData, state::StateRef};
+use crate::{gui::floating_window, project::ProjectData, state::StateRef};
 use eframe::egui::{
     text::{CCursor, CCursorRange},
     text_edit::{TextEditOutput, TextEditState},
-    Button, CentralPanel, Context, FontId, Frame, Id, ScrollArea, SidePanel, TextEdit, Window,
+    Button, CentralPanel, Context, FontId, Frame, Id, ScrollArea, SidePanel, TextEdit,
 };
 use nemclass_scripting::{ClassHost, ScriptEngine};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// Persistent id of the code editor's `TextEdit`, needed to move the caret after
 /// inserting a completion.
@@ -23,29 +27,48 @@ const EDITOR_ID: &str = "nem_script_editor";
 
 /// Bridges scripts to the GUI's live class list, so `nem.set_class_address` and
 /// friends can drive the inspector.
-#[derive(Clone, Copy)]
-struct GuiClassHost(StateRef);
+#[derive(Clone)]
+struct GuiClassHost {
+    state: StateRef,
+    /// Addresses set for classes that don't exist yet — typically ones the same
+    /// script creates via `EXPORT`, which is only imported after the run. These
+    /// are applied once the import has created the classes (see [`Self::import`]).
+    /// `Rc` so every clone the engine makes shares one list.
+    deferred: Rc<RefCell<Vec<(String, usize)>>>,
+}
+
+impl GuiClassHost {
+    fn new(state: StateRef) -> Self {
+        Self {
+            state,
+            deferred: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+}
 
 impl ClassHost for GuiClassHost {
     fn class_names(&self) -> Vec<String> {
-        self.0
+        self.state
             .try_borrow()
             .map(|s| s.class_list.classes().iter().map(|c| c.name.clone()).collect())
             .unwrap_or_default()
     }
 
     fn set_class_address(&self, name: &str, address: usize) -> bool {
-        if let Ok(s) = self.0.try_borrow() {
+        if let Ok(s) = self.state.try_borrow() {
             if let Some(class) = s.class_list.by_name(name) {
                 class.address.set(address);
                 return true;
             }
         }
-        false
+        // The class doesn't exist yet (e.g. it's created by an `EXPORT` later in
+        // this same run). Remember the address instead of failing the script.
+        self.deferred.borrow_mut().push((name.to_owned(), address));
+        true
     }
 
     fn class_address(&self, name: &str) -> Option<usize> {
-        self.0
+        self.state
             .try_borrow()
             .ok()
             .and_then(|s| s.class_list.by_name(name).map(|c| c.address.get()))
@@ -53,7 +76,8 @@ impl ClassHost for GuiClassHost {
 }
 
 const DEFAULT_SCRIPT: &str = r#"-- nem.* scripting API. `PID` is the attached process id (or nil).
--- Set EXPORT to a project RON string to import classes into the GUI.
+-- Set EXPORT to a project RON string to merge classes into the GUI
+-- (same-named classes are updated in place; new ones are added).
 
 local c = nem.class("Example")
 c:field("health", nem.kinds.i32)
@@ -105,13 +129,14 @@ impl ScriptConsole {
         let mut delete = false;
         let mut load: Option<PathBuf> = None;
         let mut accept: Option<(Range<usize>, String)> = None;
-        let mut shown = self.shown;
 
-        Window::new("Script editor")
-            .open(&mut shown)
-            .constrain(false)
-            .default_size([760.0, 540.0])
-            .show(ctx, |ui| {
+        let response = floating_window(
+            ctx,
+            true,
+            "nem_script_editor_viewport",
+            "Script editor",
+            [760.0, 540.0],
+            |ui| {
                 // Toolbar.
                 ui.horizontal(|ui| {
                     new = ui.button("New").clicked();
@@ -176,9 +201,12 @@ impl ScriptConsole {
                         );
                     });
                 });
-            });
+            },
+        );
 
-        self.shown = shown;
+        if let Some((true, ())) = response {
+            self.shown = false;
+        }
 
         if new {
             self.script.clear();
@@ -265,7 +293,7 @@ impl ScriptConsole {
         }
     }
 
-    /// Runs `script`, appending captured output/errors to `output` and importing
+    /// Runs `script`, appending captured output/errors to `output` and merging
     /// an `EXPORT`ed project into the class list.
     fn run(state: StateRef, script: &str, output: &mut String) {
         let engine = match ScriptEngine::new() {
@@ -277,29 +305,89 @@ impl ScriptConsole {
         };
 
         let pid = state.borrow().process.read().as_ref().map(|p| p.id());
-        let (printed, result) = engine.run_console_with_host(script, pid, GuiClassHost(state));
+        let host = GuiClassHost::new(state);
+        let (printed, result) = engine.run_console_with_host(script, pid, host.clone());
         output.push_str(&printed);
 
         match result {
-            Ok(Some(ron)) => Self::import(state, &ron, output),
+            Ok(Some(ron)) => Self::import(state, &ron, &host.deferred.borrow(), output),
             Ok(None) => {}
             Err(e) => output.push_str(&format!("\nerror: {e}\n")),
         }
     }
 
-    /// Imports a project RON string into the GUI's class list (replacing it,
-    /// undoably via the normal undo stack).
-    fn import(state: StateRef, ron: &str, output: &mut String) {
-        match ProjectData::from_str(ron) {
-            Some(pd) => {
-                let state = &mut *state.borrow_mut();
-                state.push_undo();
-                state.class_list = pd.load();
-                state.dummy = false;
-                output.push_str("\n[imported classes into the GUI (Ctrl+Z to undo)]\n");
+    /// Merges a project RON string into the GUI's class list (undoably via the
+    /// normal undo stack): a class whose name already exists is updated in place,
+    /// a new name is added, and classes the script didn't mention are kept.
+    ///
+    /// The merge happens at the schema level — the current classes are serialized
+    /// back to a project, the incoming classes replace/extend them by name, and
+    /// the union is reloaded — so cross-class pointer fields re-resolve by name.
+    /// Per-class addresses and the current selection are carried over by name
+    /// (they aren't part of the schema). `deferred` holds addresses the script
+    /// set for classes that didn't exist yet; they're applied once the merge has
+    /// created those classes.
+    fn import(state: StateRef, ron: &str, deferred: &[(String, usize)], output: &mut String) {
+        let Some(incoming) = ProjectData::from_str(ron) else {
+            output.push_str("\n[EXPORT was not valid project RON]\n");
+            return;
+        };
+
+        let state = &mut *state.borrow_mut();
+        state.push_undo();
+
+        // Remember runtime-only state (not captured by the schema) so we can
+        // reattach it to same-named classes after the reload.
+        let addresses: HashMap<String, usize> = state
+            .class_list
+            .classes()
+            .iter()
+            .map(|c| (c.name.clone(), c.address.get()))
+            .collect();
+        let selected_name = state.class_list.selected_class().map(|c| c.name.clone());
+
+        // Update-or-add each incoming class into the current project by name.
+        let mut merged = ProjectData::store(state.class_list.classes()).into_project();
+        let (mut updated, mut added) = (0, 0);
+        for class in incoming.into_project().classes {
+            match merged.classes.iter_mut().find(|c| c.name == class.name) {
+                Some(existing) => {
+                    *existing = class;
+                    updated += 1;
+                }
+                None => {
+                    merged.classes.push(class);
+                    added += 1;
+                }
             }
-            None => output.push_str("\n[EXPORT was not valid project RON]\n"),
         }
+
+        let mut list = ProjectData::from_project(merged).load();
+        for class in list.classes_mut() {
+            if let Some(&addr) = addresses.get(&class.name) {
+                class.address.set(addr);
+            }
+        }
+        if let Some(id) = selected_name.and_then(|n| list.by_name(&n)).map(|c| c.id()) {
+            *list.selected_mut() = Some(id);
+        }
+
+        // Apply addresses the script set for classes that only now exist. These
+        // run after the carry-over above, so a script's address wins by design.
+        let mut applied = 0;
+        for (name, addr) in deferred {
+            if let Some(class) = list.by_name(name) {
+                class.address.set(*addr);
+                applied += 1;
+            }
+        }
+
+        state.class_list = list;
+        state.dummy = false;
+        output.push_str(&format!(
+            "\n[merged classes into the GUI: {updated} updated, {added} added, \
+             {applied} address(es) applied (Ctrl+Z to undo)]\n"
+        ));
     }
 }
 

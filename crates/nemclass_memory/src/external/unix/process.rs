@@ -297,38 +297,102 @@ impl OwnedProcess {
         core::mem::size_of::<usize>()
     }
 
-    /// Finds all occurences of the pattern in a given range.
-    // TODO: Can be optimized
+    /// Finds all occurrences of the pattern in `[start, start + len)`.
+    ///
+    /// The target's memory is pulled across in ~1 MiB chunks (one
+    /// `process_vm_readv` per chunk) and matched locally. The naive alternative —
+    /// one syscall per byte offset — turns a multi-MB module scan into tens of
+    /// millions of syscalls (a ~70 MiB Wine module took ~30s that way). Only the
+    /// readable sub-ranges are scanned, since Wine splits a module across
+    /// mappings with unreadable gaps that would fail a spanning read; consecutive
+    /// chunks overlap by `pat.len() - 1` so a match straddling a chunk boundary
+    /// is still found.
     pub fn find_pattern<'a>(
         &'a self,
         pat: impl Matcher + 'a,
         start: usize,
         len: usize,
     ) -> impl Iterator<Item = usize> + 'a {
-        let mut offset = 0;
-        let mut buf = vec![0; pat.len()];
+        const CHUNK: usize = 1 << 20; // 1 MiB per read.
 
-        std::iter::from_fn(move || {
-            loop {
-                if self.read_buf(start + offset, &mut buf[..]).is_err() {
-                    return None;
+        let mut out = Vec::new();
+        let plen = pat.len();
+        if plen == 0 || len < plen {
+            return out.into_iter();
+        }
+
+        let end = start.saturating_add(len);
+        let overlap = plen - 1;
+        let mut buf = vec![0u8; CHUNK + overlap];
+
+        for (region_start, region_end) in self.readable_regions(start, end) {
+            let mut addr = region_start;
+            while addr + plen <= region_end {
+                // Read the chunk plus the overlap that lets the next window's
+                // opening match be completed here.
+                let want = (region_end - addr).min(CHUNK + overlap);
+                let n = self.read_buf(addr, &mut buf[..want]).unwrap_or(0);
+
+                if n >= plen {
+                    for i in 0..=n - plen {
+                        if pat.matches(&buf[i..i + plen]) {
+                            out.push(addr + i);
+                        }
+                    }
                 }
 
-                if pat.matches(&buf[..]) {
+                // A short read (unexpected hole) or the region's tail ends it;
+                // otherwise step by CHUNK, keeping `overlap` via the next read.
+                if n < want || want < CHUNK + overlap {
                     break;
                 }
-
-                offset += 1;
-
-                if offset >= len {
-                    return None;
-                }
+                addr += CHUNK;
             }
+        }
 
-            offset += 1;
-            Some(start + offset - 1)
-        })
-        .fuse()
+        out.into_iter()
+    }
+
+    /// The maximal readable sub-ranges of `[start, end)`, in ascending order.
+    ///
+    /// Wine maps one module across many `/proc/<pid>/maps` entries, some
+    /// unreadable (guard / `PAGE_NOACCESS`); a single read spanning such a hole
+    /// fails, so a scan must read each readable run separately.
+    fn readable_regions(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
+        let mut regions: Vec<(usize, usize)> = Vec::new();
+        if start >= end {
+            return regions;
+        }
+        let Ok(maps) = fs::read_to_string(format!("/proc/{}/maps", self.0)) else {
+            return regions;
+        };
+        for line in maps.lines() {
+            let mut fields = line.split_whitespace();
+            let Some(range) = fields.next() else { continue };
+            if !fields.next().unwrap_or("").starts_with('r') {
+                continue; // not readable
+            }
+            let Some((a, b)) = range.split_once('-') else {
+                continue;
+            };
+            let (Ok(seg_start), Ok(seg_end)) = (
+                usize::from_str_radix(a, 16),
+                usize::from_str_radix(b, 16),
+            ) else {
+                continue;
+            };
+            let clipped_start = seg_start.max(start);
+            let clipped_end = seg_end.min(end);
+            if clipped_start >= clipped_end {
+                continue;
+            }
+            // maps are address-sorted; merge runs that touch or overlap.
+            match regions.last_mut() {
+                Some(last) if clipped_start <= last.1 => last.1 = last.1.max(clipped_end),
+                _ => regions.push((clipped_start, clipped_end)),
+            }
+        }
+        regions
     }
 
     /// Searches for a pattern in the specified module.
