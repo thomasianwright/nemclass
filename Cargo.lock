@@ -2020,6 +2020,7 @@ dependencies = [
  "egui_extras",
  "eyre",
  "fastrand",
+ "image",
  "nemclass_memory",
  "nemclass_scripting",
  "nemclass_sdk",
