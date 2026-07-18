@@ -10,7 +10,7 @@ use core::{
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 /// Represents a single process in the system.
@@ -234,58 +234,16 @@ impl OwnedProcess {
         let s = fs::read_to_string(format!("/proc/{}/maps", self.0))
             .map_err(|_| MfError::ProcessDied)?;
 
-        struct ModRange {
-            from: usize,
-            to: usize,
-        }
-
-        let mut maps: HashMap<String, ModRange> = HashMap::new();
-
-        for l in s.lines() {
-            let map = l
-                .split_whitespace()
-                .filter(|v| !v.is_empty())
-                .collect::<Vec<_>>();
-            if map.len() != 6 {
-                continue;
-            }
-
-            let libname = map[5];
-            let convert = |s: &str| usize::from_str_radix(s, 16).unwrap();
-
-            let (from, to) = map[0]
-                .split_once('-')
-                .map(|(from, to)| (convert(from), convert(to)))
-                .unwrap();
-
-            if fs::metadata(libname).is_ok() {
-                let ent = maps
-                    .entry(libname.to_owned())
-                    .or_insert_with(|| ModRange { from, to });
-
-                // Wine splits one PE across many section mappings; grow the
-                // range to the bounding box of every mapping of this file.
-                ent.from = ent.from.min(from);
-                ent.to = ent.to.max(to);
-            }
-        }
-
-        let mut out = Vec::with_capacity(maps.len());
-        for (k, ModRange { from, to }) in maps {
-            let path = PathBuf::from(k);
-            let name = match path.file_name() {
-                Some(n) => n.to_string_lossy().into_owned(),
-                None => continue,
-            };
-
+        let mut out = Vec::new();
+        for RawModule { name, base, end } in parse_maps_modules(&s) {
             // The span of section mappings undercounts a Wine PE (alignment
             // gaps, header-only tail pages), so prefer the true `SizeOfImage`
-            // from the PE header mapped at the image base. Native objects have
-            // no PE header there, so fall back to the measured span.
-            let mut size = to - from;
+            // read from the PE header mapped at the image base. Native objects
+            // have no PE header there, so fall back to the measured span.
+            let mut size = end.saturating_sub(base);
             let lower = name.to_ascii_lowercase();
             if lower.ends_with(".exe") || lower.ends_with(".dll") {
-                if let Some(image_size) = super::wine::size_of_image(self, from) {
+                if let Some(image_size) = super::wine::size_of_image(self, base) {
                     if image_size != 0 {
                         size = image_size as usize;
                     }
@@ -294,7 +252,7 @@ impl OwnedProcess {
 
             out.push(ModuleInfoWithName {
                 name,
-                base: from as *const u8,
+                base: base as *const u8,
                 size,
             });
         }
@@ -513,4 +471,153 @@ pub fn find_process_by_id(id: u32) -> crate::Result<OwnedProcess> {
     }
 
     Ok(OwnedProcess(id))
+}
+
+/// One module aggregated from `/proc/<pid>/maps`: its file name, image base and
+/// the end of its last mapping.
+struct RawModule {
+    name: String,
+    base: usize,
+    end: usize,
+}
+
+/// Parses `/proc/<pid>/maps` text into one span per mapped file.
+///
+/// Robust to the two things that break naive whitespace splitting under Wine:
+/// - **paths with spaces** (`drive_c/Program Files/…`) and the **`(deleted)`**
+///   suffix — the pathname is taken as everything from the first `/` (the
+///   address/perms/offset/dev/inode columns never contain one);
+/// - **fragmented PE images** — Wine maps one PE as many section mappings, which
+///   are merged here by full path (so 32- and 64-bit copies under WoW64 stay
+///   distinct). The reported base is the mapping at file offset 0 (the PE
+///   headers / true image base), falling back to the lowest mapping. Modules are
+///   returned in first-seen order.
+fn parse_maps_modules(maps: &str) -> Vec<RawModule> {
+    struct Acc {
+        name: String,
+        image_base: Option<usize>,
+        lowest: usize,
+        end: usize,
+    }
+
+    let mut order: Vec<String> = Vec::new();
+    let mut acc: HashMap<String, Acc> = HashMap::new();
+
+    for line in maps.lines() {
+        // File-backed mappings are exactly the lines with a pathname, which
+        // starts at the first '/'. Anonymous / [heap] / [stack] have none.
+        let Some(slash) = line.find('/') else {
+            continue;
+        };
+        let path = line[slash..].trim_end();
+        let path = path
+            .strip_suffix("(deleted)")
+            .map(str::trim_end)
+            .unwrap_or(path);
+        let Some(name) = path.rsplit('/').next().filter(|n| !n.is_empty()) else {
+            continue;
+        };
+
+        // The columns before the pathname: address perms offset dev inode.
+        let mut fields = line[..slash].split_whitespace();
+        let Some((from, to)) = fields.next().and_then(|r| r.split_once('-')) else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) =
+            (usize::from_str_radix(from, 16), usize::from_str_radix(to, 16))
+        else {
+            continue;
+        };
+        let _perms = fields.next();
+        let offset = fields
+            .next()
+            .and_then(|s| usize::from_str_radix(s, 16).ok())
+            .unwrap_or(0);
+
+        let entry = acc.entry(path.to_owned()).or_insert_with(|| {
+            order.push(path.to_owned());
+            Acc {
+                name: name.to_owned(),
+                image_base: None,
+                lowest: start,
+                end,
+            }
+        });
+        // The offset-0 mapping holds the MZ/NT headers and sits at the true image
+        // base; `start - offset` is unreliable when section alignments differ.
+        if offset == 0 && entry.image_base.is_none() {
+            entry.image_base = Some(start);
+        }
+        entry.lowest = entry.lowest.min(start);
+        entry.end = entry.end.max(end);
+    }
+
+    order
+        .into_iter()
+        .filter_map(|path| acc.remove(&path))
+        .map(|a| RawModule {
+            name: a.name,
+            base: a.image_base.unwrap_or(a.lowest),
+            end: a.end,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod maps_tests {
+    use super::parse_maps_modules;
+
+    #[test]
+    fn wine_pe_with_spaces_in_path_is_recognised() {
+        // A Wine PE under a path with a space, split across section mappings.
+        let maps = "\
+7f0000000000-7f0000001000 r--p 00000000 08:01 111 /home/u/.wine/drive_c/Program Files/Game/test.dll
+7f0000001000-7f0000010000 r-xp 00001000 08:01 111 /home/u/.wine/drive_c/Program Files/Game/test.dll
+7f0000010000-7f0000012000 rw-p 00010000 08:01 111 /home/u/.wine/drive_c/Program Files/Game/test.dll
+";
+        let mods = parse_maps_modules(maps);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].name, "test.dll");
+        assert_eq!(mods[0].base, 0x7f0000000000);
+        assert_eq!(mods[0].end, 0x7f0000012000);
+    }
+
+    #[test]
+    fn base_prefers_offset_zero_mapping_over_lowest() {
+        // The offset-0 (header) mapping is higher than another section here;
+        // the base must still be the offset-0 mapping, not the lowest address.
+        let maps = "\
+0000000000400000-0000000000401000 r-xp 00002000 08:01 222 /x/foo.dll
+0000000000410000-0000000000411000 r--p 00000000 08:01 222 /x/foo.dll
+";
+        let mods = parse_maps_modules(maps);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].base, 0x410000);
+    }
+
+    #[test]
+    fn deleted_suffix_and_non_file_lines() {
+        let maps = "\
+0000555500000000-0000555500001000 r--p 00000000 08:01 333 /tmp/bar.dll (deleted)
+0000555500001000-0000555500002000 r-xp 00001000 08:01 333 /tmp/bar.dll (deleted)
+7ffff7a00000-7ffff7a21000 rw-p 00000000 00:00 0
+7ffff7ffd000-7ffff7fff000 r--p 00000000 00:00 0 [vvar]
+";
+        let mods = parse_maps_modules(maps);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].name, "bar.dll");
+    }
+
+    #[test]
+    fn wow64_same_basename_distinct_files_stay_separate() {
+        let maps = "\
+00000000f0000000-00000000f0001000 r--p 00000000 08:01 10 /wine/lib32/test.dll
+00000000f0001000-00000000f0010000 r-xp 00001000 08:01 10 /wine/lib32/test.dll
+7f0000000000-7f0000001000 r--p 00000000 08:01 20 /wine/lib64/test.dll
+7f0000001000-7f0000010000 r-xp 00001000 08:01 20 /wine/lib64/test.dll
+";
+        let mods = parse_maps_modules(maps);
+        assert_eq!(mods.len(), 2);
+        assert!(mods.iter().all(|m| m.name == "test.dll"));
+    }
 }
