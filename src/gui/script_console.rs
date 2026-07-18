@@ -109,6 +109,7 @@ impl ScriptConsole {
 
         Window::new("Script editor")
             .open(&mut shown)
+            .constrain(false)
             .default_size([760.0, 540.0])
             .show(ctx, |ui| {
                 // Toolbar.

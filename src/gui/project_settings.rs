@@ -71,6 +71,7 @@ impl ProjectSettings {
 
         Window::new("Project settings")
             .open(&mut shown)
+            .constrain(false)
             .resizable(false)
             .show(ctx, |ui| {
                 if !has_project {

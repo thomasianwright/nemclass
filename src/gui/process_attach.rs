@@ -37,6 +37,7 @@ impl ProcessAttachWindow {
         Window::new("Attach to process")
             .collapsible(false)
             .open(&mut self.shown)
+            .constrain(false)
             .default_size(vec2(180., 320.))
             .show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {

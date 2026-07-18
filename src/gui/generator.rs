@@ -32,6 +32,7 @@ impl GeneratorWindow {
 
         Window::new("Class generator")
             .open(&mut self.shown)
+            .constrain(false)
             .show(ctx, |ui| {
                 ComboBox::new("_generator", "Current generator")
                     .selected_text(self.current_generator.label())
