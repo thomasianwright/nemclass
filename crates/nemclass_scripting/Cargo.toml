@@ -1,6 +1,11 @@
 [package]
 name = "nemclass_scripting"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "Lua scripting host for nemclass, over the headless nemclass_sdk."
+license = "MIT"
 
 [dependencies]
+nemclass_sdk = { workspace = true }
+mlua = { version = "0.12", features = ["lua54", "vendored"] }
+thiserror = "2"

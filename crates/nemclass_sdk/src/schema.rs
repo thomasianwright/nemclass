@@ -46,6 +46,16 @@ impl Project {
         Self::default()
     }
 
+    /// A project wrapping the given types.
+    pub fn from_types(classes: Vec<TypeDef>) -> Self {
+        Self { classes }
+    }
+
+    /// Appends a type to the project.
+    pub fn push(&mut self, ty: TypeDef) {
+        self.classes.push(ty);
+    }
+
     /// Parses a project from RON text.
     pub fn from_ron(text: &str) -> Result<Self> {
         ron::from_str(text).map_err(|e| SdkError::Project(e.to_string()))
