@@ -1,4 +1,4 @@
-use super::{GeneratorWindow, ProcessAttachWindow, ScriptConsole, SpiderWindow};
+use super::{GeneratorWindow, ProcessAttachWindow, ProjectSettings, ScriptConsole, SpiderWindow};
 use crate::{
     field::{FieldKind, FloatWidth},
     state::{GlobalState, StateRef},
@@ -40,6 +40,7 @@ pub struct ToolBarPanel {
     generator_window: GeneratorWindow,
     spider_window: SpiderWindow,
     script_console: ScriptConsole,
+    project_settings: ProjectSettings,
     state: StateRef,
 }
 
@@ -51,6 +52,7 @@ impl ToolBarPanel {
             generator_window: GeneratorWindow::new(state),
             spider_window: SpiderWindow::new(state),
             script_console: ScriptConsole::new(state),
+            project_settings: ProjectSettings::new(state),
         }
     }
 
@@ -64,6 +66,7 @@ impl ToolBarPanel {
 
         self.generator_window.show(ctx);
         self.script_console.show(ctx);
+        self.project_settings.show(ctx);
         if let Err(e) = self.spider_window.show(ctx) {
             self.state.borrow_mut().toasts.error(e.to_string());
         }
@@ -99,6 +102,10 @@ impl ToolBarPanel {
 
                     if ui.button("Script").clicked() {
                         self.script_console.toggle();
+                    }
+
+                    if ui.button("Settings").clicked() {
+                        self.project_settings.toggle();
                     }
 
                     ui.add_space(4.);

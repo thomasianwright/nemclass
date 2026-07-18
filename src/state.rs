@@ -209,7 +209,7 @@ impl GlobalState {
                 self.dummy = false;
                 self.remember_recent(dir);
                 self.config.save();
-                self.try_auto_attach();
+                self.attach_from_manifest();
                 true
             }
             Err(e) => {
@@ -236,7 +236,7 @@ impl GlobalState {
     }
 
     /// Attempts the manifest's auto-attach, if configured. Errors surface as toasts.
-    fn try_auto_attach(&mut self) {
+    pub fn attach_from_manifest(&mut self) {
         let Some(spec) = self.manifest.auto_attach.clone() else {
             return;
         };

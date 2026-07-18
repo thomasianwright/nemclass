@@ -11,6 +11,8 @@ pub use generator::*;
 mod completion;
 mod script_console;
 pub use script_console::*;
+mod project_settings;
+pub use project_settings::*;
 mod spider;
 pub use spider::*;
 mod utils;

@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use eframe::{
-    egui::{Button, ComboBox, Context, RichText, TextEdit, Ui, Window},
+    egui::{Button, ComboBox, Context, RichText, TextEdit, Ui, ViewportBuilder, ViewportId},
     epaint::{vec2, Color32, FontId},
 };
 use egui_extras::{Column, TableBuilder};
@@ -108,9 +108,6 @@ impl SpiderWindow {
     }
 
     pub fn show(&mut self, ctx: &Context) -> eyre::Result<Option<()>> {
-        // I promise not to use self.show anywhere else.
-        let shown = unsafe { &mut (*(self as *mut Self)).shown };
-
         match self.scanner.try_take() {
             ScannerReport::Finshed(time, mut results) => {
                 results.sort_unstable_by_key(|v| v.parent_offsets.len());
@@ -129,9 +126,27 @@ impl SpiderWindow {
             ScannerReport::Idle => {}
         }
 
-        Window::new("Structure spider")
-            .open(shown)
-            .show(ctx, |ui| {
+        if !self.shown {
+            return Ok(None);
+        }
+
+        // Render the spider in its own OS-level viewport so it floats free of
+        // the main window instead of being clamped inside it.
+        let builder = ViewportBuilder::default()
+            .with_title("Structure spider")
+            .with_inner_size([440.0, 560.0])
+            .with_min_inner_size([320.0, 200.0]);
+
+        ctx.show_viewport_immediate(
+            ViewportId::from_hash_of("structure_spider_viewport"),
+            builder,
+            |ui, _class| {
+                // Honour the native window's close button.
+                if ui.input(|i| i.viewport().close_requested()) {
+                    self.shown = false;
+                    return Ok(());
+                }
+
                 let state = &mut *self.state.borrow_mut();
 
                 let process_lock = state.process.read();
@@ -288,9 +303,9 @@ impl SpiderWindow {
                 }
 
                 Ok(())
-            })
-            .and_then(|v| v.inner)
-            .transpose()
+            },
+        )
+        .map(Some)
     }
 
     fn display_results(&mut self, process: &Process, ui: &mut Ui) {
