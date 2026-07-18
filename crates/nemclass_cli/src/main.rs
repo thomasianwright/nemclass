@@ -126,7 +126,7 @@ fn cmd_init(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::e
     }
 
     nemclass_scripting::write_editor_support(&dir)?;
-    println!("wrote editor support: scripts/nem.lua, .luarc.json");
+    println!("refreshed scripts/nem.lua (and .luarc.json if it was missing)");
     Ok(())
 }
 
