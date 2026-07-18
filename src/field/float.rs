@@ -43,10 +43,14 @@ impl<const N: usize> Field for FloatField<N> {
         }
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        Box::new(FloatField::<N>::new(self.state.name.borrow().clone()))
+    }
+
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
         let mut buf = [0; N];
         let address = ctx.address + ctx.offset;
-        ctx.process.read(address, &mut buf);
+        let _ = ctx.process.read(address, &mut buf);
 
         let mut resp = None;
         ui.horizontal(|ui| {

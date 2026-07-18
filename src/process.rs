@@ -83,20 +83,23 @@ impl Process {
         })
     }
 
-    pub fn read(&self, address: usize, buf: &mut [u8]) {
+    /// Reads `buf.len()` bytes at `address`. Returns `false` if the read failed, in which case
+    /// `buf` may be left with stale/partial contents — callers must not trust it.
+    #[must_use]
+    pub fn read(&self, address: usize, buf: &mut [u8]) -> bool {
         match self {
-            // TODO(ItsEthra): Proper error handling maybe?.
-            Self::Internal((op, _)) => _ = op.read_buf(address, buf),
-            Self::Managed(ext) => _ = (ext.read)(address, buf.as_mut_ptr(), buf.len()),
-        };
+            Self::Internal((op, _)) => op.read_buf(address, buf).is_ok(),
+            // Managed plugins report a status code; `0` means success.
+            Self::Managed(ext) => (ext.read)(address, buf.as_mut_ptr(), buf.len()) == 0,
+        }
     }
 
-    pub fn write(&self, address: usize, buf: &[u8]) {
+    /// Writes `buf` at `address`. Returns `false` if the write failed.
+    pub fn write(&self, address: usize, buf: &[u8]) -> bool {
         match self {
-            // TODO(ItsEthra): Proper error handling maybe?.
-            Self::Internal((op, _)) => _ = op.write_buf(address, buf),
-            Self::Managed(ext) => _ = (ext.write)(address, buf.as_ptr(), buf.len()),
-        };
+            Self::Internal((op, _)) => op.write_buf(address, buf).is_ok(),
+            Self::Managed(ext) => (ext.write)(address, buf.as_ptr(), buf.len()) == 0,
+        }
     }
 
     pub fn id(&self) -> u32 {

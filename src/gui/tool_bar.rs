@@ -1,7 +1,7 @@
 use super::{GeneratorWindow, ProcessAttachWindow, SpiderWindow};
 use crate::{
     class::ClassList,
-    field::FieldKind,
+    field::{FieldKind, FloatWidth},
     state::{GlobalState, StateRef},
 };
 use eframe::{
@@ -301,6 +301,58 @@ impl ToolBarPanel {
         ui.add_space(2.);
 
         create_change_field_type_group!(ui, response, BLACK, BROWN, Ptr, StrPtr);
+
+        ui.separator();
+        ui.add_space(2.);
+
+        // Vector / matrix kinds are data-carrying `FieldKind` variants, so they can't go through
+        // the ident-based `create_change_field_type_group!` macro — use explicit submenus.
+        ui.menu_button("Vec", |ui| {
+            ui.set_width(80.);
+            ui.vertical_centered_justified(|ui| {
+                for (label, components, width) in [
+                    ("Vec2 f32", 2, FloatWidth::F32),
+                    ("Vec3 f32", 3, FloatWidth::F32),
+                    ("Vec4 f32", 4, FloatWidth::F32),
+                    ("Vec2 f64", 2, FloatWidth::F64),
+                    ("Vec3 f64", 3, FloatWidth::F64),
+                    ("Vec4 f64", 4, FloatWidth::F64),
+                ] {
+                    if ui.button(label).clicked() {
+                        *response = Some(ToolBarResponse::ChangeKind(FieldKind::Vector {
+                            components,
+                            width,
+                        }));
+                        ui.close();
+                    }
+                }
+            });
+        });
+
+        ui.add_space(2.);
+
+        ui.menu_button("Mat", |ui| {
+            ui.set_width(88.);
+            ui.vertical_centered_justified(|ui| {
+                for (label, rows, cols, width) in [
+                    ("Mat4x4 f32", 4, 4, FloatWidth::F32),
+                    ("Mat3x4 f32", 3, 4, FloatWidth::F32),
+                    ("Mat3x3 f32", 3, 3, FloatWidth::F32),
+                    ("Mat4x4 f64", 4, 4, FloatWidth::F64),
+                    ("Mat3x4 f64", 3, 4, FloatWidth::F64),
+                    ("Mat3x3 f64", 3, 3, FloatWidth::F64),
+                ] {
+                    if ui.button(label).clicked() {
+                        *response = Some(ToolBarResponse::ChangeKind(FieldKind::Matrix {
+                            rows,
+                            cols,
+                            width,
+                        }));
+                        ui.close();
+                    }
+                }
+            });
+        });
     }
 }
 

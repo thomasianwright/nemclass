@@ -1,10 +1,11 @@
 use crate::{
     address::parse_address,
+    app::change_field_kind,
     clipboard::{self, ClipboardPayload, ParsedPaste},
     context::InspectionContext,
     field::FieldResponse,
     project::load_fields_into,
-    state::StateRef,
+    state::{push_class_list_snapshot, StateRef},
     FID_M,
 };
 use eframe::{
@@ -108,6 +109,7 @@ impl InspectorPanel {
 
         let mut new_class = None;
         let mut paste_req = None;
+        let mut convert_req = None;
         ScrollArea::vertical()
             .auto_shrink([false, true])
             .hscroll(true)
@@ -121,6 +123,7 @@ impl InspectorPanel {
                     Some(FieldResponse::LockScroll) => self.allow_scroll = false,
                     Some(FieldResponse::UnlockScroll) => self.allow_scroll = true,
                     Some(FieldResponse::Paste(sel)) => paste_req = Some(sel),
+                    Some(FieldResponse::ConvertKind(sel, kind)) => convert_req = Some((sel, kind)),
                     None => {}
                 }
             });
@@ -144,6 +147,11 @@ impl InspectorPanel {
                             .and_then(|c| c.fields.iter().position(|f| f.id() == sel.field_id))
                             .map(|p| p + 1);
                         if let Some(pos) = pos {
+                            push_class_list_snapshot(
+                                &mut state.undo_stack,
+                                &mut state.redo_stack,
+                                &state.class_list,
+                            );
                             load_fields_into(&mut state.class_list, sel.container_id, pos, data);
                             state.dummy = false;
                         }
@@ -165,6 +173,14 @@ impl InspectorPanel {
                     }
                 }
             }
+        }
+
+        // Apply a type conversion requested via "Guess type" or a Hex-view hint. This needs a full
+        // `&mut state`, so the process read-guard must be released first.
+        if let Some((sel, kind)) = convert_req {
+            drop(process_lock);
+            change_field_kind(state, sel.container_id, sel.field_id, kind);
+            state.dummy = false;
         }
 
         Some(())

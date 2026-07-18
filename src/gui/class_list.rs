@@ -66,6 +66,7 @@ impl ClassListPanel {
             ui.horizontal_top(|ui| {
                 let size = vec2(ui.available_width(), 18.);
                 if ui.add_sized(size, Button::new("Remove empty")).clicked() {
+                    state.push_undo();
                     state.class_list.remove_empty();
                 }
             });
@@ -91,6 +92,7 @@ impl ClassListPanel {
                     state.toasts.error("Not a valid class name");
                     self.should_focus_edit = true;
                 } else {
+                    state.push_undo();
                     state.class_list.add_class(take(&mut self.new_class_buf));
                     state.dummy = false;
                 }
@@ -197,7 +199,10 @@ impl ClassListPanel {
                     }
 
                     match action.take()? {
-                        RequestedAction::Delete(cid) => state.class_list.delete_by_id(cid),
+                        RequestedAction::Delete(cid) => {
+                            state.push_undo();
+                            state.class_list.delete_by_id(cid);
+                        }
                         RequestedAction::ToggleSelection(cid) => {
                             let selected = state.class_list.selected_mut();
                             if *selected == Some(cid) {
@@ -223,6 +228,7 @@ impl ClassListPanel {
                                         .by_id(cid)
                                         .map(|c| c.fields.len())
                                         .unwrap_or(0);
+                                    state.push_undo();
                                     load_fields_into(&mut state.class_list, cid, end, data);
                                     state.dummy = false;
                                 }

@@ -61,6 +61,7 @@ pub struct SpiderWindow {
     display: DisplayMode,
 
     scanner: ScannerState,
+    cancelled: bool,
 }
 
 impl SpiderWindow {
@@ -80,6 +81,7 @@ impl SpiderWindow {
             scanner_status: None,
             results: vec![],
             shown: false,
+            cancelled: false,
             state,
         }
     }
@@ -114,8 +116,12 @@ impl SpiderWindow {
                 results.sort_unstable_by_key(|v| v.parent_offsets.len());
 
                 self.results = results;
-                self.scanner_status =
-                    Some(format!("Finished in: {:.2}", time.as_secs_f32()).into());
+                self.scanner_status = Some(if self.cancelled {
+                    format!("Cancelled (partial) after {:.2}s", time.as_secs_f32()).into()
+                } else {
+                    format!("Finished in: {:.2}", time.as_secs_f32()).into()
+                });
+                self.cancelled = false;
             }
             ScannerReport::InProgress => {
                 self.scanner_status = Some("In progress".into());
@@ -214,6 +220,14 @@ impl SpiderWindow {
                         if let Some(status) = self.scanner_status.as_deref() {
                             ui.separator();
                             ui.label(status);
+                        }
+
+                        if self.scanner.active() {
+                            ui.separator();
+                            if ui.button("Stop").clicked() {
+                                self.scanner.stop();
+                                self.cancelled = true;
+                            }
                         }
                     });
 
@@ -329,10 +343,10 @@ impl SpiderWindow {
                     let mut address = address;
                     let mut buf = [0; 8];
                     for offset in result.parent_offsets.iter() {
-                        process.read(address + offset, &mut buf[..]);
+                        let _ = process.read(address.saturating_add(*offset), &mut buf[..]);
                         address = usize::from_ne_bytes(buf);
                     }
-                    process.read(address + result.offset, &mut buf[..]);
+                    let _ = process.read(address.saturating_add(result.offset), &mut buf[..]);
 
                     // Display current value
                     let current = bytes_to_value(&buf, result.last_value.kind());
@@ -358,9 +372,30 @@ impl SpiderWindow {
             };
         }
 
+        // Bound the search so a stray large value can't exhaust memory or spin for minutes.
+        const MAX_DEPTH: usize = 8;
+        const MAX_STRUCT: usize = 0x4000;
+
         let depth = annotated!(max_levels, "Max level");
         let alignment = annotated!(alignment, "Alignment");
         let struct_size = annotated!(struct_size, "Struct size");
+
+        if depth == 0 {
+            eyre::bail!("Max level must be at least 1");
+        }
+        if depth > MAX_DEPTH {
+            eyre::bail!("Max level is too large (max {MAX_DEPTH})");
+        }
+        if alignment == 0 {
+            eyre::bail!("Alignment must be at least 1");
+        }
+        if struct_size == 0 {
+            eyre::bail!("Structure size must be greater than 0");
+        }
+        if struct_size > MAX_STRUCT {
+            eyre::bail!("Structure size is too large (max {MAX_STRUCT:#X})");
+        }
+
         let address = self
             .base_address
             .value_clone()

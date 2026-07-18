@@ -45,7 +45,11 @@ impl Generator for CppGenerator {
             );
         }
 
-        self.main += &format!("    {} {name};\n", kind_to_type(kind, metadata));
+        self.main += &format!(
+            "    {} {name}{};\n",
+            kind_to_type(kind, metadata),
+            array_suffix(kind)
+        );
 
         self.offset += size;
         self.last_offset = self.offset;
@@ -76,5 +80,16 @@ fn kind_to_type(kind: FieldKind, metadata: Option<&str>) -> Cow<'static, str> {
         FieldKind::Ptr => format!("{}*", metadata.unwrap_or("void")).into(),
         FieldKind::StrPtr => "const char*".into(),
         FieldKind::Bool => "bool".into(),
+        FieldKind::Vector { width, .. } | FieldKind::Matrix { width, .. } => width.cpp_ty().into(),
+    }
+}
+
+/// C++ array declarator placed after the field name (`float name[3];`, `float m[4][4];`).
+/// Empty for scalar kinds.
+fn array_suffix(kind: FieldKind) -> Cow<'static, str> {
+    match kind {
+        FieldKind::Vector { components, .. } => format!("[{components}]").into(),
+        FieldKind::Matrix { rows, cols, .. } => format!("[{rows}][{cols}]").into(),
+        _ => "".into(),
     }
 }

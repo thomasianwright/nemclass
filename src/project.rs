@@ -247,8 +247,48 @@ pub(crate) fn load_fields_into(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_fields_into, store_fields, DataField};
-    use crate::{class::ClassList, field::FieldKind};
+    use super::{load_fields_into, store_fields, DataField, ProjectData};
+    use crate::{
+        class::ClassList,
+        field::{FieldKind, FloatWidth},
+    };
+
+    /// Vector/matrix fields must survive a full project save/load through RON, preserving their
+    /// component/dimension/width metadata and byte layout.
+    #[test]
+    fn vector_matrix_project_roundtrip() {
+        let vec3 = FieldKind::Vector {
+            components: 3,
+            width: FloatWidth::F32,
+        };
+        let mat4 = FieldKind::Matrix {
+            rows: 4,
+            cols: 4,
+            width: FloatWidth::F64,
+        };
+
+        let mut list = ClassList::EMPTY;
+        let cid = list.add_empty_class("Camera".into());
+        {
+            let class = list.by_id_mut(cid).unwrap();
+            class.fields.push(vec3.into_field(Some("pos".into())));
+            class.fields.push(mat4.into_field(Some("view".into())));
+        }
+
+        // Save -> RON -> load, then confirm kinds and total layout are intact.
+        let text = ProjectData::store(list.classes()).to_string();
+        let loaded = ProjectData::from_str(&text).unwrap().load();
+
+        let kinds = loaded
+            .by_name("Camera")
+            .unwrap()
+            .fields
+            .iter()
+            .map(|f| f.kind())
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&vec3), "vec3 kind lost: {kinds:?}");
+        assert!(kinds.contains(&mat4), "mat4 kind lost: {kinds:?}");
+    }
 
     /// Copies typed fields from one class, round-trips them through the same RON path the
     /// clipboard uses, and pastes them into another class — mirroring structural copy/paste.

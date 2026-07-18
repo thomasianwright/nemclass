@@ -201,10 +201,18 @@ impl Field for PointerField {
         FieldKind::Ptr
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        let name = self.state.name.borrow().clone();
+        match self.class_id.get() {
+            Some(cid) => Box::new(PointerField::new_with_class_id(name, cid)),
+            None => Box::new(PointerField::new(name)),
+        }
+    }
+
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
         // TODO(ItsEthra): Again, pointer size differs in 32-bit processes.
         let mut buf = [0; 8];
-        ctx.process.read(ctx.address + ctx.offset, &mut buf);
+        let _ = ctx.process.read(ctx.address + ctx.offset, &mut buf);
         let address = usize::from_ne_bytes(buf);
 
         if self.class_id.get().is_none() {

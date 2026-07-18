@@ -42,6 +42,10 @@ impl Field for StringPointerField {
         FieldKind::StrPtr
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        Box::new(StringPointerField::new(self.state.name.borrow().clone()))
+    }
+
     fn draw(
         &self,
         ui: &mut eframe::egui::Ui,
@@ -49,11 +53,11 @@ impl Field for StringPointerField {
     ) -> Option<super::FieldResponse> {
         // TODO: The size of the pointer would be 4 bytes on x86
         let mut buf = [0; 8];
-        ctx.process.read(ctx.address + ctx.offset, &mut buf);
+        let _ = ctx.process.read(ctx.address + ctx.offset, &mut buf);
         let address = usize::from_ne_bytes(buf);
 
         let mut str_buf = [0; 64];
-        ctx.process.read(address, &mut str_buf);
+        let _ = ctx.process.read(address, &mut str_buf);
 
         let mut resp = None;
         ui.horizontal(|ui| {

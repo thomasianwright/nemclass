@@ -73,5 +73,11 @@ fn kind_to_type(kind: FieldKind, metadata: Option<&str>) -> Cow<'static, str> {
         FieldKind::Ptr => format!("Option<&'static {}>", metadata.unwrap_or("()")).into(),
         FieldKind::StrPtr => "*const u8".into(),
         FieldKind::Bool => "bool".into(),
+        FieldKind::Vector { components, width } => {
+            format!("[{}; {}]", width.rust_ty(), components).into()
+        }
+        FieldKind::Matrix { rows, cols, width } => {
+            format!("[[{}; {}]; {}]", width.rust_ty(), cols, rows).into()
+        }
     }
 }

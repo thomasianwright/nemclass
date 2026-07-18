@@ -66,14 +66,23 @@ impl SearchResult {
     ) -> bool {
         let mut buf = [0; 8];
 
+        // Follow the pointer chain, bailing (dropping the result) if any hop can't be read or
+        // dereferences to null — otherwise we'd read arbitrary/garbage memory.
         for offset in self.parent_offsets.iter() {
-            p.read(address.saturating_add(*offset), &mut buf[..]);
+            if !p.read(address.saturating_add(*offset), &mut buf[..]) {
+                return false;
+            }
             address = usize::from_ne_bytes(buf);
+            if address == 0 {
+                return false;
+            }
         }
-        p.read(address.saturating_add(self.offset), &mut buf[..]);
-        address = usize::from_ne_bytes(buf);
 
-        p.read(address, &mut buf[..]);
+        // The value lives directly at `address + offset` (matching the scanner and the results
+        // table); the previous code dereferenced it one extra time and filtered on garbage.
+        if !p.read(address.saturating_add(self.offset), &mut buf[..]) {
+            return false;
+        }
 
         let current_value = bytes_to_value(&buf, self.last_value.kind());
         let result = match filter {

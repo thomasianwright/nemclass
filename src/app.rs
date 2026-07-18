@@ -1,12 +1,13 @@
 use crate::{
+    class::ClassId,
     context::Selection,
-    field::allocate_padding,
+    field::{allocate_padding, FieldId, FieldKind},
     gui::{ClassListPanel, InspectorPanel, ToolBarPanel, ToolBarResponse},
     process::Process,
-    state::StateRef,
+    state::{GlobalState, StateRef},
 };
 use eframe::{
-    egui::{Ui, ViewportCommand},
+    egui::{Key, Ui, ViewportCommand},
     epaint::Color32,
     App, Frame,
 };
@@ -42,19 +43,33 @@ impl App for YClassApp {
             ctx.set_pixels_per_point(dpi);
         });
 
+        // Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z), unless a text field is capturing the keystroke.
+        if !ctx.egui_wants_keyboard_input() {
+            let (undo, redo) = ctx.input(|i| {
+                let z = i.key_pressed(Key::Z) && i.modifiers.command;
+                (z && !i.modifiers.shift, z && i.modifiers.shift)
+            });
+            if undo {
+                self.state.borrow_mut().undo();
+            } else if redo {
+                self.state.borrow_mut().redo();
+            }
+        }
+
         match self.tool_bar.show(ctx) {
             Some(ToolBarResponse::Add(n)) => {
                 let state = &mut *self.state.borrow_mut();
 
-                if let Some(cid) = state
+                let cid = state
                     .selection
                     .map(|s| s.container_id)
-                    .or_else(|| state.class_list.selected())
-                {
-                    let class = state.class_list.by_id_mut(cid).unwrap();
-                    class.fields.extend(allocate_padding(n));
-
-                    state.dummy = false;
+                    .or_else(|| state.class_list.selected());
+                if let Some(cid) = cid.filter(|cid| state.class_list.by_id(*cid).is_some()) {
+                    state.push_undo();
+                    if let Some(class) = state.class_list.by_id_mut(cid) {
+                        class.fields.extend(allocate_padding(n));
+                        state.dummy = false;
+                    }
                 }
             }
             Some(ToolBarResponse::Remove(n)) => {
@@ -66,29 +81,25 @@ impl App for YClassApp {
                     ..
                 }) = state.selection
                 {
-                    let class = state.class_list.by_id_mut(container_id).unwrap();
-                    let mut discrd_sel = false;
-                    let pos = class
-                        .fields
-                        .iter()
-                        .position(|f| {
-                            discrd_sel |= state
-                                .selection
-                                .map(|s| s.field_id == f.id())
-                                .unwrap_or(false);
+                    let pos = state
+                        .class_list
+                        .by_id(container_id)
+                        .and_then(|c| c.fields.iter().position(|f| f.id() == field_id));
 
-                            f.id() == field_id
-                        })
-                        .unwrap();
-                    if discrd_sel {
+                    if let Some(pos) = pos {
+                        state.push_undo();
+                        // Removal starts at the selected field, so the selection is consumed.
+                        state.selection = None;
+                        if let Some(class) = state.class_list.by_id_mut(container_id) {
+                            let from = pos.min(class.fields.len());
+                            let to = (pos + n).min(class.fields.len());
+                            class.fields.drain(from..to);
+                            state.dummy = false;
+                        }
+                    } else {
+                        // Selection referenced a field/class that no longer exists.
                         state.selection = None;
                     }
-
-                    let from = pos.min(class.fields.len());
-                    let to = (pos + n).min(class.fields.len());
-
-                    class.fields.drain(from..to);
-                    state.dummy = false;
                 }
             }
             Some(ToolBarResponse::Insert(n)) => {
@@ -100,19 +111,23 @@ impl App for YClassApp {
                     ..
                 }) = state.selection
                 {
-                    let class = state.class_list.by_id_mut(container_id).unwrap();
-                    let pos = class
-                        .fields
-                        .iter()
-                        .position(|f| f.id() == field_id)
-                        .unwrap();
-                    let mut padding = allocate_padding(n);
+                    let pos = state
+                        .class_list
+                        .by_id(container_id)
+                        .and_then(|c| c.fields.iter().position(|f| f.id() == field_id));
 
-                    while let Some(field) = padding.pop() {
-                        class.fields.insert(pos, field);
+                    if let Some(pos) = pos {
+                        state.push_undo();
+                        if let Some(class) = state.class_list.by_id_mut(container_id) {
+                            let mut padding = allocate_padding(n);
+                            while let Some(field) = padding.pop() {
+                                class.fields.insert(pos, field);
+                            }
+                            state.dummy = false;
+                        }
+                    } else {
+                        state.selection = None;
                     }
-
-                    state.dummy = false;
                 }
             }
             Some(ToolBarResponse::ChangeKind(new)) => {
@@ -124,54 +139,7 @@ impl App for YClassApp {
                     ..
                 }) = state.selection
                 {
-                    let class = state.class_list.by_id_mut(container_id).unwrap();
-                    let pos = class
-                        .fields
-                        .iter()
-                        .position(|f| f.id() == field_id)
-                        .unwrap();
-
-                    let (old_size, old_name) = (class.fields[pos].size(), class.fields[pos].name());
-                    if old_size > new.size() {
-                        let mut padding = allocate_padding(old_size - new.size());
-                        class.fields[pos] = new.into_field(old_name);
-                        while let Some(pad) = padding.pop() {
-                            class.fields.insert(pos + 1, pad);
-                        }
-
-                        state.selection.as_mut().unwrap().field_id = class.fields[pos].id();
-                    } else {
-                        let (mut steal_size, mut steal_len) = (0, 0);
-                        while steal_size < new.size() {
-                            if pos >= class.fields.len() {
-                                break;
-                            }
-
-                            let index = pos + steal_len;
-                            if index >= class.fields.len() {
-                                break;
-                            }
-
-                            steal_size += class.fields[index].size();
-                            steal_len += 1;
-                        }
-
-                        if steal_size < new.size() {
-                            state.toasts.error("Not enough space for a new field");
-                        } else {
-                            class.fields.drain(pos..pos + steal_len);
-                            let mut padding = allocate_padding(steal_size - new.size());
-                            class.fields.insert(pos, new.into_field(old_name));
-
-                            while let Some(pad) = padding.pop() {
-                                class.fields.insert(pos + 1, pad);
-                            }
-
-                            state.selection.as_mut().unwrap().field_id = class.fields[pos].id();
-                        }
-                    }
-
-                    state.dummy = false;
+                    change_field_kind(state, container_id, field_id, new);
                 }
             }
             Some(ToolBarResponse::ProcessDetach) => {
@@ -246,4 +214,74 @@ impl App for YClassApp {
 
 pub fn is_valid_ident(name: &str) -> bool {
     !name.starts_with(char::is_numeric) && !name.contains(char::is_whitespace) && !name.is_empty()
+}
+
+/// Converts the field identified by `field_id` inside class `container_id` to `new`, preserving its
+/// name. Shrinking pads the freed bytes; growing "steals" bytes from the following fields (padding
+/// any remainder). Keeps the retyped field selected. Shared by the toolbar type buttons and the
+/// inference "Guess type" / Hex-hint conversions.
+pub fn change_field_kind(
+    state: &mut GlobalState,
+    container_id: ClassId,
+    field_id: FieldId,
+    new: FieldKind,
+) {
+    // Confirm the field exists before snapshotting, so no-op conversions don't pollute undo.
+    let exists = state
+        .class_list
+        .by_id(container_id)
+        .is_some_and(|c| c.fields.iter().any(|f| f.id() == field_id));
+    if !exists {
+        return;
+    }
+    state.push_undo();
+
+    let Some(class) = state.class_list.by_id_mut(container_id) else {
+        return;
+    };
+    let Some(pos) = class.fields.iter().position(|f| f.id() == field_id) else {
+        return;
+    };
+
+    let (old_size, old_name) = (class.fields[pos].size(), class.fields[pos].name());
+    let new_field_id;
+
+    if old_size > new.size() {
+        let mut padding = allocate_padding(old_size - new.size());
+        class.fields[pos] = new.into_field(old_name);
+        new_field_id = class.fields[pos].id();
+        while let Some(pad) = padding.pop() {
+            class.fields.insert(pos + 1, pad);
+        }
+    } else {
+        let (mut steal_size, mut steal_len) = (0, 0);
+        while steal_size < new.size() {
+            let index = pos + steal_len;
+            if index >= class.fields.len() {
+                break;
+            }
+            steal_size += class.fields[index].size();
+            steal_len += 1;
+        }
+
+        if steal_size < new.size() {
+            state.toasts.error("Not enough space for a new field");
+            return;
+        }
+
+        class.fields.drain(pos..pos + steal_len);
+        let mut padding = allocate_padding(steal_size - new.size());
+        class.fields.insert(pos, new.into_field(old_name));
+        new_field_id = class.fields[pos].id();
+        while let Some(pad) = padding.pop() {
+            class.fields.insert(pos + 1, pad);
+        }
+    }
+
+    if let Some(sel) = state.selection.as_mut() {
+        if sel.field_id == field_id {
+            sel.field_id = new_field_id;
+        }
+    }
+    state.dummy = false;
 }

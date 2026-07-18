@@ -14,6 +14,12 @@ mod string_pointer;
 pub use string_pointer::*;
 mod boolean;
 pub use boolean::*;
+mod vector;
+pub use vector::*;
+mod matrix;
+pub use matrix::*;
+mod infer;
+pub use infer::*;
 
 use crate::{
     class::Class,
@@ -36,6 +42,9 @@ pub enum FieldResponse {
     /// A paste was requested from a field's context menu. Carries the target field's location so
     /// the inspector can apply it (see [`crate::gui::InspectorPanel`]).
     Paste(Selection),
+    /// A type conversion was requested (via "Guess type" or a Hex-view hint). Carries the target
+    /// field's location and the inferred [`FieldKind`] to apply.
+    ConvertKind(Selection, FieldKind),
 }
 
 pub trait Field {
@@ -43,6 +52,10 @@ pub trait Field {
     fn name(&self) -> Option<String>;
     fn size(&self) -> usize;
     fn kind(&self) -> FieldKind;
+
+    /// Deep-clones this field into a fresh box (with a new field id). Used for undo/redo
+    /// snapshots, which need a lossless copy of the field structure.
+    fn clone_box(&self) -> Box<dyn Field>;
 
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse>;
     fn codegen(&self, generator: &mut dyn Generator, data: &CodegenData);

@@ -34,6 +34,17 @@ impl Class {
     pub fn id(&self) -> usize {
         self.id
     }
+
+    /// Deep-clones the class (fields included) for undo/redo snapshots. The class id and address are
+    /// preserved; field ids are regenerated (so field-level selections must be re-established).
+    pub fn deep_clone(&self) -> Class {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            address: Cell::new(self.address.get()),
+            fields: self.fields.iter().map(|f| f.clone_box()).collect(),
+        }
+    }
 }
 
 pub struct ClassList {
@@ -119,5 +130,13 @@ impl ClassList {
     pub fn selected_class(&self) -> Option<&Class> {
         self.selected
             .and_then(|i| self.classes.iter().find(|c| c.id == i))
+    }
+
+    /// Deep-clones the whole list (classes, fields, addresses, selected class) for undo/redo.
+    pub fn deep_clone(&self) -> ClassList {
+        Self {
+            classes: self.classes.iter().map(|c| c.deep_clone()).collect(),
+            selected: self.selected,
+        }
     }
 }

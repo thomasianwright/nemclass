@@ -40,10 +40,14 @@ impl Field for BoolField {
         FieldKind::Bool
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        Box::new(BoolField::new(self.state.name.borrow().clone()))
+    }
+
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
         let mut val = 0u8;
         let address = ctx.address + ctx.offset;
-        ctx.process.read(address, slice::from_mut(&mut val));
+        let _ = ctx.process.read(address, slice::from_mut(&mut val));
 
         let mut resp = None;
         ui.horizontal(|ui| {

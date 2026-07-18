@@ -1,4 +1,7 @@
-use super::{create_text_format, EditingState, Field, FieldResponse, HexField, NamedState};
+use super::{
+    create_text_format, infer_kind, read_window, EditingState, Field, FieldResponse, HexField,
+    NamedState,
+};
 use crate::{
     app::is_valid_ident,
     clipboard::{self, ClipboardPayload},
@@ -38,7 +41,7 @@ pub fn field_row_response(
 
         if ui.button("Copy value").clicked() {
             let mut bytes = vec![0u8; field.size()];
-            ctx.process.read(ctx.address + ctx.offset, &mut bytes);
+            let _ = ctx.process.read(ctx.address + ctx.offset, &mut bytes);
             clipboard::write(
                 ui.ctx(),
                 &ClipboardPayload::Value {
@@ -62,6 +65,25 @@ pub fn field_row_response(
                 container_id: ctx.current_container,
                 field_id: field.id(),
             }));
+            ui.close();
+        }
+
+        ui.separator();
+
+        if ui.button("Guess type").clicked() {
+            let bytes = read_window(ctx.process, ctx.address + ctx.offset);
+            if let Some(kind) = infer_kind(&bytes, ctx.process).into_iter().next() {
+                response = Some(FieldResponse::ConvertKind(
+                    Selection {
+                        address: ctx.address + ctx.offset,
+                        container_id: ctx.current_container,
+                        field_id: field.id(),
+                    },
+                    kind,
+                ));
+            } else {
+                ctx.toasts.info("Couldn't infer a more specific type");
+            }
             ui.close();
         }
     });
@@ -94,7 +116,7 @@ pub fn display_field_prelude(
             && ctx.is_selected(field.id())
         {
             let mut buf = [0; 8];
-            ctx.process.read(ctx.address + ctx.offset, &mut buf[..]);
+            let _ = ctx.process.read(ctx.address + ctx.offset, &mut buf[..]);
             egui_ctx.copy_text(format!("{:X}", usize::from_ne_bytes(buf)));
         }
 

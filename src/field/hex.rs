@@ -1,8 +1,11 @@
 use super::{
-    create_text_format, display_field_prelude, field_row_response, next_id, CodegenData, Field,
-    FieldId, FieldKind, FieldResponse,
+    create_text_format, display_field_prelude, field_row_response, infer_float_hint, next_id,
+    read_window, CodegenData, Field, FieldId, FieldKind, FieldResponse,
 };
-use crate::{context::InspectionContext, generator::Generator};
+use crate::{
+    context::{InspectionContext, Selection},
+    generator::Generator,
+};
 use eframe::{
     egui::{Label, ScrollArea, Sense, Ui},
     epaint::{text::LayoutJob, Color32},
@@ -138,6 +141,45 @@ impl<const N: usize> HexField<N> {
         }
     }
 
+    /// Low-noise live hint: if the bytes at (and just after) this field look like a float or a
+    /// float vector, show a clickable "Vec3f?"-style label that converts the field on click.
+    fn hint_view(
+        &self,
+        ui: &mut Ui,
+        ctx: &mut InspectionContext,
+        response: &mut Option<FieldResponse>,
+    ) {
+        if N != 4 && N != 8 {
+            return;
+        }
+
+        let window = read_window(ctx.process, ctx.address + ctx.offset);
+        let Some(kind) = infer_float_hint(&window, ctx.process) else {
+            return;
+        };
+
+        let mut job = LayoutJob::default();
+        job.append(
+            &format!("{}?", kind.display_name()),
+            6.,
+            create_text_format(ctx.is_selected(self.id), Color32::GOLD),
+        );
+
+        let r = ui
+            .add(Label::new(job).sense(Sense::click()))
+            .on_hover_text("Click to convert to this type");
+        if r.clicked() {
+            *response = Some(FieldResponse::ConvertKind(
+                Selection {
+                    address: ctx.address + ctx.offset,
+                    container_id: ctx.current_container,
+                    field_id: self.id,
+                },
+                kind,
+            ));
+        }
+    }
+
     fn pointer_view(
         &self,
         ui: &mut Ui,
@@ -237,9 +279,13 @@ impl<const N: usize> Field for HexField<N> {
         }
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        Box::new(HexField::<N>::new())
+    }
+
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
         let mut buf = [0; N];
-        ctx.process.read(ctx.address + ctx.offset, &mut buf);
+        let _ = ctx.process.read(ctx.address + ctx.offset, &mut buf);
 
         let mut response = None;
 
@@ -254,6 +300,7 @@ impl<const N: usize> Field for HexField<N> {
             self.int_view(ui, ctx, &buf);
             self.float_view(ui, ctx, &buf);
             self.pointer_view(ui, ctx, &buf, &mut response);
+            self.hint_view(ui, ctx, &mut response);
 
             if menu_resp.is_some() {
                 response = menu_resp;

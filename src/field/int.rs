@@ -84,10 +84,19 @@ impl<const N: usize> Field for IntField<N> {
         }
     }
 
+    fn clone_box(&self) -> Box<dyn Field> {
+        let name = self.state.name.borrow().clone();
+        Box::new(if self.signed {
+            IntField::<N>::signed(name)
+        } else {
+            IntField::<N>::unsigned(name)
+        })
+    }
+
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
         let mut buf = [0; N];
         let address = ctx.address + ctx.offset;
-        ctx.process.read(ctx.address + ctx.offset, &mut buf);
+        let _ = ctx.process.read(ctx.address + ctx.offset, &mut buf);
 
         let mut resp = None;
         ui.horizontal(|ui| {
