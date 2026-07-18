@@ -8,6 +8,7 @@ mod inspector;
 pub use inspector::*;
 mod generator;
 pub use generator::*;
+mod completion;
 mod script_console;
 pub use script_console::*;
 mod spider;

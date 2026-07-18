@@ -6,13 +6,20 @@
 //! Scripts are loaded from and saved to the open project's `scripts/` folder, so
 //! they can be version-controlled alongside the project.
 
+use super::completion::{complete, Completion};
 use crate::{project::ProjectData, state::StateRef};
-use eframe::{
-    egui::{Button, Context, TextEdit, Window},
-    epaint::FontId,
+use eframe::egui::{
+    text::{CCursor, CCursorRange},
+    text_edit::{TextEditOutput, TextEditState},
+    Button, CentralPanel, Context, FontId, Frame, Id, ScrollArea, SidePanel, TextEdit, Window,
 };
 use nemclass_scripting::{ClassHost, ScriptEngine};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
+
+/// Persistent id of the code editor's `TextEdit`, needed to move the caret after
+/// inserting a completion.
+const EDITOR_ID: &str = "nem_script_editor";
 
 /// Bridges scripts to the GUI's live class list, so `nem.set_class_address` and
 /// friends can drive the inspector.
@@ -89,56 +96,85 @@ impl ScriptConsole {
 
         let scripts_dir = self.state.borrow().scripts_dir();
         let scripts = scripts_dir.as_deref().map(list_lua).unwrap_or_default();
+        let editor_id = Id::new(EDITOR_ID);
 
         // Collect actions inside the closure; apply them after (avoids borrow clashes).
         let mut run = false;
         let mut new = false;
         let mut save = false;
+        let mut delete = false;
         let mut load: Option<PathBuf> = None;
+        let mut accept: Option<(Range<usize>, String)> = None;
         let mut shown = self.shown;
 
-        Window::new("Lua console")
+        Window::new("Script editor")
             .open(&mut shown)
-            .default_size([600.0, 480.0])
+            .default_size([760.0, 540.0])
             .show(ctx, |ui| {
+                // Toolbar.
                 ui.horizontal(|ui| {
-                    run = ui.button("Run").clicked();
                     new = ui.button("New").clicked();
+                    let can_save = scripts_dir.is_some() && !self.script_name.trim().is_empty();
+                    save = ui.add_enabled(can_save, Button::new("Save")).clicked();
+                    run = ui.button("Run").clicked();
                     ui.separator();
                     ui.label("File:");
-                    ui.add(TextEdit::singleline(&mut self.script_name).desired_width(140.0));
-                    let can_save =
-                        scripts_dir.is_some() && !self.script_name.trim().is_empty();
-                    save = ui.add_enabled(can_save, Button::new("Save")).clicked();
+                    ui.add(TextEdit::singleline(&mut self.script_name).desired_width(160.0));
+                    delete = ui.add_enabled(scripts_dir.is_some(), Button::new("Delete")).clicked();
                 });
+                ui.separator();
 
-                if !scripts.is_empty() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("Open:");
-                        for path in &scripts {
-                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                if ui.button(name).clicked() {
-                                    load = Some(path.clone());
+                // Explorer.
+                SidePanel::left("nem_script_explorer")
+                    .resizable(true)
+                    .default_width(150.0)
+                    .show_inside(ui, |ui| {
+                        ui.strong("Scripts");
+                        ui.separator();
+                        ScrollArea::vertical().show(ui, |ui| {
+                            if scripts.is_empty() {
+                                ui.weak("(none yet — Save to create)");
+                            }
+                            for path in &scripts {
+                                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                    let selected = name == self.script_name;
+                                    if ui.selectable_label(selected, name).clicked() {
+                                        load = Some(path.clone());
+                                    }
                                 }
                             }
-                        }
+                        });
                     });
-                }
 
-                ui.separator();
-                TextEdit::multiline(&mut self.script)
-                    .code_editor()
-                    .desired_rows(16)
-                    .desired_width(f32::INFINITY)
-                    .font(FontId::monospace(12.))
-                    .show(ui);
+                // Editor + output.
+                CentralPanel::default().show_inside(ui, |ui| {
+                    let output = TextEdit::multiline(&mut self.script)
+                        .id(editor_id)
+                        .code_editor()
+                        .desired_rows(18)
+                        .desired_width(f32::INFINITY)
+                        .font(FontId::monospace(12.))
+                        .show(ui);
 
-                ui.separator();
-                ui.label("Output:");
-                TextEdit::multiline(&mut self.output.as_str())
-                    .desired_width(f32::INFINITY)
-                    .font(FontId::monospace(12.))
-                    .show(ui);
+                    // IntelliSense: suggestions for the token under the caret.
+                    if output.response.has_focus() {
+                        if let Some(caret) = caret_index(&output) {
+                            if let Some(comp) = complete(&self.script, caret) {
+                                accept = render_completions(ui, &comp);
+                            }
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("Output:");
+                    ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                        ui.add(
+                            TextEdit::multiline(&mut self.output.as_str())
+                                .desired_width(f32::INFINITY)
+                                .font(FontId::monospace(12.)),
+                        );
+                    });
+                });
             });
 
         self.shown = shown;
@@ -147,6 +183,9 @@ impl ScriptConsole {
             self.script.clear();
             self.script_name = "untitled.lua".to_owned();
             self.output.clear();
+        }
+        if let Some((range, label)) = accept {
+            self.apply_completion(ctx, editor_id, range, &label);
         }
         if run {
             self.output.clear();
@@ -157,8 +196,46 @@ impl ScriptConsole {
                 self.save_script(dir);
             }
         }
+        if delete {
+            self.delete_script(scripts_dir.as_deref());
+        }
         if let Some(path) = load {
             self.load_script(&path);
+        }
+    }
+
+    /// Replaces the token at `range` with `label` and moves the caret to the end
+    /// of the inserted text.
+    fn apply_completion(&mut self, ctx: &Context, editor_id: Id, range: Range<usize>, label: &str) {
+        let mut chars: Vec<char> = self.script.chars().collect();
+        let end = range.end.min(chars.len());
+        let start = range.start.min(end);
+        let caret = start + label.chars().count();
+        chars.splice(start..end, label.chars());
+        self.script = chars.into_iter().collect();
+
+        if let Some(mut state) = TextEditState::load(ctx, editor_id) {
+            state
+                .cursor
+                .set_char_range(Some(CCursorRange::one(CCursor::new(caret))));
+            state.store(ctx, editor_id);
+        }
+    }
+
+    fn delete_script(&mut self, scripts_dir: Option<&Path>) {
+        let Some(dir) = scripts_dir else { return };
+        let mut name = self.script_name.trim().to_owned();
+        if !name.ends_with(".lua") {
+            name.push_str(".lua");
+        }
+        let path = dir.join(&name);
+        if !path.is_file() {
+            self.output.push_str(&format!("\n[no such script: {name}]\n"));
+            return;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => self.output.push_str(&format!("\n[deleted scripts/{name}]\n")),
+            Err(e) => self.output.push_str(&format!("\nfailed to delete {name}: {e}\n")),
         }
     }
 
@@ -223,6 +300,36 @@ impl ScriptConsole {
             None => output.push_str("\n[EXPORT was not valid project RON]\n"),
         }
     }
+}
+
+/// The primary caret's char index within the editor, if any.
+fn caret_index(output: &TextEditOutput) -> Option<usize> {
+    output.cursor_range.map(|range| range.primary.index)
+}
+
+/// Renders the completion suggestions as a popup list under the editor. Returns
+/// `Some((token_range, label))` when a suggestion is clicked.
+fn render_completions(
+    ui: &mut eframe::egui::Ui,
+    comp: &Completion,
+) -> Option<(Range<usize>, String)> {
+    let mut chosen = None;
+    Frame::popup(ui.style()).show(ui, |ui| {
+        ScrollArea::vertical()
+            .max_height(160.0)
+            .show(ui, |ui| {
+                for cand in comp.candidates.iter().take(12) {
+                    let label = format!("{:<18} {}", cand.label, cand.detail);
+                    if ui
+                        .add(Button::new(label).frame(false))
+                        .clicked()
+                    {
+                        chosen = Some((comp.range.clone(), cand.label.clone()));
+                    }
+                }
+            });
+    });
+    chosen
 }
 
 /// Lists `*.lua` files in `dir`, sorted.
