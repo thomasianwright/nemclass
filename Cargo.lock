@@ -1991,6 +1991,13 @@ version = "0.1.0"
 [[package]]
 name = "nemclass_sdk"
 version = "0.1.0"
+dependencies = [
+ "libloading 0.9.0",
+ "nemclass_memory",
+ "ron",
+ "serde",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "nohash-hasher"

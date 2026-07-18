@@ -1,5 +1,13 @@
 [package]
 name = "nemclass_sdk"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "Headless SDK for nemclass: process targets, patterns, offsets, type schemas."
+license = "MIT"
 
+[dependencies]
+nemclass_memory = { workspace = true, features = ["external"] }
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.12.2"
+thiserror = "2"
+libloading = "0.9.0"
