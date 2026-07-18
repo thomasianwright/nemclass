@@ -136,7 +136,7 @@ mod tests {
         // Real-looking floats pass.
         assert!(plausible_f32(&1.5f32.to_ne_bytes()));
         assert!(plausible_f32(&(-250.0f32).to_ne_bytes()));
-        assert!(plausible_f64(&3.14159f64.to_ne_bytes()));
+        assert!(plausible_f64(&std::f64::consts::PI.to_ne_bytes()));
 
         // Zero / NaN / out-of-band / small-int bit patterns are rejected.
         assert!(!plausible_f32(&0.0f32.to_ne_bytes()));

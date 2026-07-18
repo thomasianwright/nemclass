@@ -106,6 +106,93 @@ impl OwnedProcess {
         String::from_utf8(out).map_err(|_| MfError::InvalidString)
     }
 
+    /// Reads several disjoint regions of the process's memory in as few system
+    /// calls as possible, returning the total number of bytes read.
+    ///
+    /// Each `(address, buffer)` pair names a remote address and the local buffer
+    /// to fill from it. `process_vm_readv` is a scatter/gather primitive, so one
+    /// syscall fetches every region at once — far cheaper than a `read_buf` per
+    /// region when resolving many pointers or fields. The kernel caps a single
+    /// call at `IOV_MAX` (1024) regions, so larger batches are split across
+    /// calls transparently. As with [`read_buf`](Self::read_buf), the count may
+    /// be short if a region is only partially readable.
+    pub fn read_buf_batch(&self, regions: &mut [(usize, &mut [u8])]) -> crate::Result<usize> {
+        // Linux caps one process_vm_readv at UIO_MAXIOV (IOV_MAX) iovecs.
+        const MAX_IOV: usize = 1024;
+
+        let mut total = 0;
+        for chunk in regions.chunks_mut(MAX_IOV) {
+            let local: Vec<libc::iovec> = chunk
+                .iter_mut()
+                .map(|(_, buf)| libc::iovec {
+                    iov_base: buf.as_mut_ptr() as _,
+                    iov_len: buf.len(),
+                })
+                .collect();
+            let remote: Vec<libc::iovec> = chunk
+                .iter()
+                .map(|(address, buf)| libc::iovec {
+                    iov_base: *address as _,
+                    iov_len: buf.len(),
+                })
+                .collect();
+
+            let read = unsafe {
+                libc::process_vm_readv(
+                    self.0 as _,
+                    local.as_ptr(),
+                    local.len() as _,
+                    remote.as_ptr(),
+                    remote.len() as _,
+                    0,
+                )
+            };
+
+            if read == -1 {
+                return MfError::last();
+            }
+            total += read as usize;
+        }
+
+        Ok(total)
+    }
+
+    /// Reads a value of type `T` from each address in `addresses` with a single
+    /// batched read, returning the values in the same order.
+    ///
+    /// Backed by [`read_buf_batch`](Self::read_buf_batch), so resolving N
+    /// addresses costs one `process_vm_readv` instead of N. Fails if the batch
+    /// could not be read in full, leaving no partially-initialized values.
+    pub fn read_batch<T>(&self, addresses: &[usize]) -> crate::Result<Vec<T>> {
+        let count = addresses.len();
+
+        let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(count);
+        // SAFETY: `MaybeUninit<T>` requires no initialization. Each slot is
+        // filled by the read below before any value is read back out.
+        unsafe { out.set_len(count) };
+
+        let mut regions: Vec<(usize, &mut [u8])> = out
+            .iter_mut()
+            .zip(addresses)
+            .map(|(slot, &address)| {
+                // SAFETY: view the slot's storage as its raw bytes to read into.
+                let bytes =
+                    unsafe { from_raw_parts_mut(slot.as_mut_ptr().cast::<u8>(), size_of::<T>()) };
+                (address, bytes)
+            })
+            .collect();
+
+        if self.read_buf_batch(&mut regions)? != count * size_of::<T>() {
+            return MfError::last();
+        }
+
+        // SAFETY: the read above populated every slot in full.
+        Ok(out
+            .into_iter()
+            .map(|slot| unsafe { slot.assume_init() })
+            .collect())
+    }
+
     /// Writes process memory, returning amount of bytes written.
     pub fn write_buf(&self, address: usize, buf: &[u8]) -> crate::Result<usize> {
         unsafe {
@@ -176,22 +263,43 @@ impl OwnedProcess {
                     .entry(libname.to_owned())
                     .or_insert_with(|| ModRange { from, to });
 
-                if from < ent.from {
-                    ent.from = from;
-                } else if to > ent.to {
-                    ent.to = to;
-                }
+                // Wine splits one PE across many section mappings; grow the
+                // range to the bounding box of every mapping of this file.
+                ent.from = ent.from.min(from);
+                ent.to = ent.to.max(to);
             }
         }
 
-        Ok(maps.into_iter().filter_map(|(k, ModRange { from, to })| {
+        let mut out = Vec::with_capacity(maps.len());
+        for (k, ModRange { from, to }) in maps {
             let path = PathBuf::from(k);
-            Some(ModuleInfoWithName {
-                name: path.file_name()?.to_string_lossy().into_owned(),
+            let name = match path.file_name() {
+                Some(n) => n.to_string_lossy().into_owned(),
+                None => continue,
+            };
+
+            // The span of section mappings undercounts a Wine PE (alignment
+            // gaps, header-only tail pages), so prefer the true `SizeOfImage`
+            // from the PE header mapped at the image base. Native objects have
+            // no PE header there, so fall back to the measured span.
+            let mut size = to - from;
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with(".exe") || lower.ends_with(".dll") {
+                if let Some(image_size) = super::wine::size_of_image(self, from) {
+                    if image_size != 0 {
+                        size = image_size as usize;
+                    }
+                }
+            }
+
+            out.push(ModuleInfoWithName {
+                name,
                 base: from as *const u8,
-                size: to - from,
-            })
-        }))
+                size,
+            });
+        }
+
+        Ok(out.into_iter())
     }
 
     /// Searches for the specified module in the process.
@@ -325,8 +433,18 @@ impl ProcessIterator {
                 let entry = de.path();
 
                 let path = fs::read_link(entry.join("exe")).ok()?;
-                let name = path.file_name()?.to_str()?.to_owned();
+                let mut name = path.file_name()?.to_str()?.to_owned();
                 let parent_id = get_parent_id(&entry);
+
+                // A Wine process's ELF image is just the loader (wine-preloader,
+                // wine64-preloader, ...), so every Wine game lists under the same
+                // useless name. Surface the actual Windows program it runs. Gate
+                // on the loader name so we only scan maps for likely candidates.
+                if name.to_ascii_lowercase().starts_with("wine") {
+                    if let Some(exe) = super::wine::windows_exe_name(id) {
+                        name = format!("{name} ({exe})");
+                    }
+                }
 
                 Some(ProcessEntry {
                     id,
