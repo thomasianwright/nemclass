@@ -1,14 +1,18 @@
-//! `nemclass-cli` — run nemclass Lua scripts headlessly (no GUI).
+//! `nemclass-cli` — headless nemclass tooling (no GUI).
 //!
 //! ```text
-//! nemclass-cli run <script.lua> [--pid N | --name PROC] [--project DIR]
+//! nemclass-cli run  <script.lua> [--pid N | --name PROC] [--project DIR]
+//! nemclass-cli init <dir> [name]
 //! ```
 //!
-//! With `--project DIR`:
+//! `run` executes a Lua script through the `nem` API. With `--project DIR`:
 //! - a bare `<script.lua>` is resolved under `DIR/scripts/` if not a direct path,
-//! - `PROJECT` is exposed to the script as the project directory, and
+//! - `PROJECT` is exposed to the script, and
 //! - if neither `--pid` nor `--name` is given and the manifest has an
 //!   `[auto_attach]`, its resolved process id is exposed as `PID`.
+//!
+//! `init` scaffolds a project folder (if needed) and writes editor-support files
+//! (`scripts/nem.lua`, `.luarc.json`) so `nem.*` autocompletes in Lua editors.
 //!
 //! The target selector reaches the script as the globals `PID` / `PNAME`:
 //!
@@ -21,8 +25,9 @@ use nemclass_sdk::{project, Target};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: nemclass-cli run <script.lua> [--pid N | --name PROC] [--project DIR]";
+const USAGE: &str = "usage:\n  \
+    nemclass-cli run  <script.lua> [--pid N | --name PROC] [--project DIR]\n  \
+    nemclass-cli init <dir> [name]";
 
 fn main() -> ExitCode {
     match run() {
@@ -36,16 +41,18 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-
     match args.next().as_deref() {
-        Some("run") => {}
+        Some("run") => cmd_run(args),
+        Some("init") => cmd_init(args),
         Some("-h") | Some("--help") | None => {
             println!("{USAGE}");
-            return Ok(());
+            Ok(())
         }
-        Some(other) => return Err(format!("unknown command `{other}`\n{USAGE}").into()),
+        Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
     }
+}
 
+fn cmd_run(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
     let script_arg = args.next().ok_or(format!("missing <script.lua>\n{USAGE}"))?;
 
     let mut pid: Option<u32> = None;
@@ -62,7 +69,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )
             }
             "--name" => name = Some(args.next().ok_or("--name needs a value")?),
-            "--project" => project_dir = Some(PathBuf::from(args.next().ok_or("--project needs a value")?)),
+            "--project" => {
+                project_dir = Some(PathBuf::from(args.next().ok_or("--project needs a value")?))
+            }
             other => return Err(format!("unknown flag `{other}`\n{USAGE}").into()),
         }
     }
@@ -97,6 +106,27 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     engine.run_file(&script)?;
+    Ok(())
+}
+
+fn cmd_init(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = PathBuf::from(args.next().ok_or(format!("missing <dir>\n{USAGE}"))?);
+    let name = args.next().unwrap_or_else(|| {
+        dir.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project")
+            .to_owned()
+    });
+
+    if project::is_project_dir(&dir) {
+        println!("existing project at {}", dir.display());
+    } else {
+        project::create_dir(&dir, &name)?;
+        println!("created project `{name}` at {}", dir.display());
+    }
+
+    nemclass_scripting::write_editor_support(&dir)?;
+    println!("wrote editor support: scripts/nem.lua, .luarc.json");
     Ok(())
 }
 

@@ -125,6 +125,8 @@ impl GlobalState {
 
         match nemclass_sdk::project::create_dir(&dir, &name) {
             Ok(loaded) => {
+                // Scaffold Lua editor autocompletion (scripts/nem.lua + .luarc.json).
+                let _ = nemclass_scripting::write_editor_support(&dir);
                 self.class_list = ClassList::default();
                 self.manifest = loaded.manifest;
                 self.last_opened_project = Some(dir.clone());
