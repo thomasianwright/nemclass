@@ -2,12 +2,12 @@ use crate::{
     class::ClassList, config::YClassConfig, context::Selection, hotkeys::HotkeyManager,
     process::Process, project::ProjectData,
 };
+use nemclass_sdk::{Manifest, Target};
 use egui_notify::Toasts;
 use parking_lot::RwLock;
 use std::{
     cell::RefCell,
     collections::HashSet,
-    fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -18,7 +18,10 @@ pub type StateRef = &'static RefCell<GlobalState>;
 const MAX_UNDO: usize = 100;
 
 pub struct GlobalState {
+    /// The open project *folder* (contains `project.nemproj`), if any.
     pub last_opened_project: Option<PathBuf>,
+    /// The open project's manifest (name + optional auto-attach).
+    pub manifest: Manifest,
     pub selection: Option<Selection>,
     pub process: Arc<RwLock<Option<Process>>>,
     pub hotkeys: HotkeyManager,
@@ -56,6 +59,7 @@ impl Default for GlobalState {
             hotkeys: HotkeyManager::default(),
             class_list: ClassList::default(),
             last_opened_project: None,
+            manifest: Manifest::new("untitled"),
             toasts: Toasts::default(),
             process: Arc::default(),
             selection: None,
@@ -99,86 +103,149 @@ impl GlobalState {
         }
     }
 
-    pub fn save_project_as(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .set_title("Save current project")
-            .add_filter("YClass project", &["yclass"])
-            .save_file()
-        {
-            self.save_project(Some(&path));
+    /// Creates a new project in a chosen (existing) folder, scaffolding
+    /// `project.nemproj`, `classes/` and `scripts/`.
+    pub fn new_project(&mut self) {
+        if self.last_opened_project.is_some() && !self.dummy {
+            self.save_project(None);
+        }
+
+        let Some(dir) = rfd::FileDialog::new()
+            .set_title("Choose a folder for the new project")
+            .pick_folder()
+        else {
+            return;
+        };
+
+        let name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project")
+            .to_owned();
+
+        match nemclass_sdk::project::create_dir(&dir, &name) {
+            Ok(loaded) => {
+                self.class_list = ClassList::default();
+                self.manifest = loaded.manifest;
+                self.last_opened_project = Some(dir.clone());
+                self.dummy = false;
+                self.remember_recent(&dir);
+                self.config.save();
+            }
+            Err(e) => {
+                self.toasts
+                    .error(format!("Failed to create the project. {e}"));
+            }
         }
     }
 
-    pub fn save_project(&mut self, path: Option<&Path>) {
-        if let Some(path) = path {
-            let pd = ProjectData::store(self.class_list.classes()).to_string();
-            if let Err(e) = fs::write(path, pd.as_bytes()) {
-                self.toasts
-                    .error(format!("Failed to save the project. {e}"));
-            } else {
-                self.last_opened_project = Some(path.to_owned());
-                self.dummy = false;
-            }
-        } else if let Some(ref last) = self.last_opened_project {
-            let pd = ProjectData::store(self.class_list.classes()).to_string();
-            if let Err(e) = fs::write(last, pd.as_bytes()) {
-                self.toasts
-                    .error(format!("Failed to save the project. {e}"));
-            } else {
-                self.last_opened_project = Some(last.to_owned());
-                self.dummy = false;
-            }
-        } else if let Some(path) = rfd::FileDialog::new()
-            .set_title("Save current project")
-            .add_filter("YClass project", &["yclass"])
-            .save_file()
+    pub fn save_project_as(&mut self) {
+        if let Some(dir) = rfd::FileDialog::new()
+            .set_title("Save project to folder")
+            .pick_folder()
         {
-            self.save_project(Some(&path));
+            self.save_project(Some(&dir));
+        }
+    }
+
+    pub fn save_project(&mut self, dir: Option<&Path>) {
+        let dir = match dir
+            .map(Path::to_path_buf)
+            .or_else(|| self.last_opened_project.clone())
+        {
+            Some(d) => d,
+            None => match rfd::FileDialog::new()
+                .set_title("Save project to folder")
+                .pick_folder()
+            {
+                Some(d) => d,
+                None => return,
+            },
+        };
+
+        let project = ProjectData::store(self.class_list.classes()).into_project();
+        match nemclass_sdk::project::save_dir(&dir, &self.manifest, &project) {
+            Ok(()) => {
+                self.last_opened_project = Some(dir);
+                self.dummy = false;
+            }
+            Err(e) => {
+                self.toasts
+                    .error(format!("Failed to save the project. {e}"));
+            }
         }
     }
 
     pub fn open_project(&mut self) -> bool {
-        if let Some(path) = rfd::FileDialog::new()
-            .set_title("Open existing project")
-            .add_filter("YClass project", &["yclass"])
-            .pick_file()
+        if let Some(dir) = rfd::FileDialog::new()
+            .set_title("Open project folder")
+            .pick_folder()
         {
-            self.open_project_path(&path)
+            self.open_project_path(&dir)
         } else {
             true
         }
     }
 
-    pub fn open_project_path(&mut self, path: &Path) -> bool {
-        if !self.class_list.classes().is_empty() && !self.dummy {
+    pub fn open_project_path(&mut self, dir: &Path) -> bool {
+        // Persist the current project before switching away from it.
+        if self.last_opened_project.is_some() && !self.dummy {
             self.save_project(None);
         }
 
-        match fs::read_to_string(path) {
-            Ok(data) => {
-                if let Some(pd) = ProjectData::from_str(&data) {
-                    self.class_list = pd.load();
-                    self.dummy = false;
-                    self.last_opened_project = Some(path.to_path_buf());
+        if !nemclass_sdk::project::is_project_dir(dir) {
+            self.toasts
+                .error("Folder is not a nemclass project (missing project.nemproj)");
+            return false;
+        }
 
-                    if let Some(recent) = self.config.recent_projects.as_mut() {
-                        recent.insert(path.to_path_buf());
-                    } else {
-                        self.config.recent_projects =
-                            Some(HashSet::from_iter([path.to_path_buf()]));
-                    }
-                    self.config.save();
-
-                    true
-                } else {
-                    self.toasts.error("Project file is in invalid format");
-                    false
-                }
+        match nemclass_sdk::project::load_dir(dir) {
+            Ok(loaded) => {
+                self.class_list = ProjectData::from_project(loaded.classes).load();
+                self.manifest = loaded.manifest;
+                self.last_opened_project = Some(dir.to_path_buf());
+                self.dummy = false;
+                self.remember_recent(dir);
+                self.config.save();
+                self.try_auto_attach();
+                true
             }
             Err(e) => {
                 self.toasts
                     .error(format!("Failed to open the project. {e}"));
                 false
+            }
+        }
+    }
+
+    /// The `scripts/` directory of the open project, if any.
+    pub fn scripts_dir(&self) -> Option<PathBuf> {
+        self.last_opened_project
+            .as_ref()
+            .map(|dir| dir.join(nemclass_sdk::project::SCRIPTS_DIR))
+    }
+
+    fn remember_recent(&mut self, dir: &Path) {
+        if let Some(recent) = self.config.recent_projects.as_mut() {
+            recent.insert(dir.to_path_buf());
+        } else {
+            self.config.recent_projects = Some(HashSet::from_iter([dir.to_path_buf()]));
+        }
+    }
+
+    /// Attempts the manifest's auto-attach, if configured. Errors surface as toasts.
+    fn try_auto_attach(&mut self) {
+        let Some(spec) = self.manifest.auto_attach.clone() else {
+            return;
+        };
+        match Target::from_auto_attach(&spec) {
+            Ok(target) => {
+                *self.process.write() = Some(Process::from_target(target));
+                self.toasts
+                    .info(format!("Auto-attached to {}", spec.process_name));
+            }
+            Err(e) => {
+                self.toasts.warning(format!("Auto-attach failed: {e}"));
             }
         }
     }

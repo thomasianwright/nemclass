@@ -145,13 +145,19 @@ impl ProjectData {
         list
     }
 
-    pub fn from_str(text: &str) -> Option<Self> {
-        Project::from_ron(text).ok().map(Self)
+    /// Wraps an SDK [`Project`] (class collection), e.g. one loaded from a
+    /// project folder.
+    pub fn from_project(project: Project) -> Self {
+        Self(project)
     }
 
-    #[allow(clippy::inherent_to_string)]
-    pub fn to_string(&self) -> String {
-        self.0.to_ron().unwrap_or_default()
+    /// Unwraps the inner SDK [`Project`], e.g. to hand to `project::save_dir`.
+    pub fn into_project(self) -> Project {
+        self.0
+    }
+
+    pub fn from_str(text: &str) -> Option<Self> {
+        Project::from_ron(text).ok().map(Self)
     }
 }
 
@@ -266,7 +272,10 @@ mod tests {
         }
 
         // Save -> RON -> load, then confirm kinds and total layout are intact.
-        let text = ProjectData::store(list.classes()).to_string();
+        let text = ProjectData::store(list.classes())
+            .into_project()
+            .to_ron()
+            .unwrap();
         let loaded = ProjectData::from_str(&text).unwrap().load();
 
         let kinds = loaded

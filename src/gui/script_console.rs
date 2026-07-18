@@ -2,13 +2,17 @@
 //! [`ScriptEngine`], captures `print` output, exposes the attached process id as
 //! the `PID` global, and — if a script sets the `EXPORT` global to a project RON
 //! string — imports the declared classes into the GUI (undoably).
+//!
+//! Scripts are loaded from and saved to the open project's `scripts/` folder, so
+//! they can be version-controlled alongside the project.
 
 use crate::{project::ProjectData, state::StateRef};
 use eframe::{
-    egui::{Context, TextEdit, Window},
+    egui::{Button, Context, TextEdit, Window},
     epaint::FontId,
 };
 use nemclass_scripting::ScriptEngine;
+use std::path::{Path, PathBuf};
 
 const DEFAULT_SCRIPT: &str = r#"-- nem.* scripting API. `PID` is the attached process id (or nil).
 -- Set EXPORT to a project RON string to import classes into the GUI.
@@ -28,6 +32,7 @@ pub struct ScriptConsole {
     state: StateRef,
     shown: bool,
     script: String,
+    script_name: String,
     output: String,
 }
 
@@ -37,6 +42,7 @@ impl ScriptConsole {
             state,
             shown: false,
             script: DEFAULT_SCRIPT.to_owned(),
+            script_name: "scratch.lua".to_owned(),
             output: String::new(),
         }
     }
@@ -50,13 +56,40 @@ impl ScriptConsole {
             return;
         }
 
+        let scripts_dir = self.state.borrow().scripts_dir();
+        let scripts = scripts_dir.as_deref().map(list_lua).unwrap_or_default();
+
+        // Collect actions inside the closure; apply them after (avoids borrow clashes).
+        let mut run = false;
+        let mut save = false;
+        let mut load: Option<PathBuf> = None;
+        let mut shown = self.shown;
+
         Window::new("Lua console")
-            .open(&mut self.shown)
-            .default_size([560., 440.])
+            .open(&mut shown)
+            .default_size([600.0, 480.0])
             .show(ctx, |ui| {
-                if ui.button("Run").clicked() {
-                    self.output.clear();
-                    Self::run(self.state, &self.script, &mut self.output);
+                ui.horizontal(|ui| {
+                    run = ui.button("Run").clicked();
+                    ui.separator();
+                    ui.label("File:");
+                    ui.add(TextEdit::singleline(&mut self.script_name).desired_width(140.0));
+                    let can_save =
+                        scripts_dir.is_some() && !self.script_name.trim().is_empty();
+                    save = ui.add_enabled(can_save, Button::new("Save")).clicked();
+                });
+
+                if !scripts.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Open:");
+                        for path in &scripts {
+                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                if ui.button(name).clicked() {
+                                    load = Some(path.clone());
+                                }
+                            }
+                        }
+                    });
                 }
 
                 ui.separator();
@@ -74,6 +107,46 @@ impl ScriptConsole {
                     .font(FontId::monospace(12.))
                     .show(ui);
             });
+
+        self.shown = shown;
+
+        if run {
+            self.output.clear();
+            Self::run(self.state, &self.script, &mut self.output);
+        }
+        if save {
+            if let Some(dir) = &scripts_dir {
+                self.save_script(dir);
+            }
+        }
+        if let Some(path) = load {
+            self.load_script(&path);
+        }
+    }
+
+    fn save_script(&mut self, dir: &Path) {
+        let mut name = self.script_name.trim().to_owned();
+        if !name.ends_with(".lua") {
+            name.push_str(".lua");
+        }
+        let result = std::fs::create_dir_all(dir)
+            .and_then(|_| std::fs::write(dir.join(&name), &self.script));
+        match result {
+            Ok(()) => self.output.push_str(&format!("\n[saved scripts/{name}]\n")),
+            Err(e) => self.output.push_str(&format!("\nfailed to save {name}: {e}\n")),
+        }
+    }
+
+    fn load_script(&mut self, path: &Path) {
+        match std::fs::read_to_string(path) {
+            Ok(text) => {
+                self.script = text;
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    self.script_name = name.to_owned();
+                }
+            }
+            Err(e) => self.output.push_str(&format!("\nfailed to load: {e}\n")),
+        }
     }
 
     /// Runs `script`, appending captured output/errors to `output` and importing
@@ -112,4 +185,16 @@ impl ScriptConsole {
             None => output.push_str("\n[EXPORT was not valid project RON]\n"),
         }
     }
+}
+
+/// Lists `*.lua` files in `dir`, sorted.
+fn list_lua(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "lua"))
+        .collect();
+    v.sort();
+    v
 }

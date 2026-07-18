@@ -1,6 +1,5 @@
 use super::{GeneratorWindow, ProcessAttachWindow, ScriptConsole, SpiderWindow};
 use crate::{
-    class::ClassList,
     field::{FieldKind, FloatWidth},
     state::{GlobalState, StateRef},
 };
@@ -183,8 +182,7 @@ impl ToolBarPanel {
         let state = &mut *self.state.borrow_mut();
 
         if ui.button("New project").clicked() {
-            state.save_project(None);
-            state.class_list = ClassList::default();
+            state.new_project();
             ui.close();
         }
 

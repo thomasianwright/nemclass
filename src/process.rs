@@ -30,6 +30,11 @@ impl Process {
 
         Ok(Self(target))
     }
+
+    /// Wraps an already-attached [`Target`] (e.g. from auto-attach).
+    pub fn from_target(target: Target) -> Self {
+        Self(target)
+    }
 }
 
 impl Deref for Process {

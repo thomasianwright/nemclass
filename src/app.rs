@@ -7,11 +7,11 @@ use crate::{
     state::{GlobalState, StateRef},
 };
 use eframe::{
-    egui::{Key, Ui, ViewportCommand},
+    egui::{Align2, Context, Key, Ui, ViewportCommand, Window},
     epaint::Color32,
     App, Frame,
 };
-use std::{sync::Once, time::Duration};
+use std::{path::PathBuf, sync::Once, time::Duration};
 
 pub struct YClassApp {
     class_list: ClassListPanel,
@@ -29,6 +29,59 @@ impl YClassApp {
             state,
         }
     }
+
+    /// Blocking start screen shown until a project is open: create or open a
+    /// project (a folder with `project.nemproj`), or pick a recent one.
+    fn show_project_gate(&mut self, ctx: &Context) {
+        let recents: Vec<PathBuf> = {
+            let s = self.state.borrow();
+            s.config
+                .recent_projects
+                .as_ref()
+                .map(|h| h.iter().cloned().collect())
+                .unwrap_or_default()
+        };
+
+        // Collect the chosen action without borrowing state during the closure.
+        let mut do_new = false;
+        let mut do_open = false;
+        let mut open_path: Option<PathBuf> = None;
+
+        Window::new("Welcome to nemclass")
+            .collapsible(false)
+            .resizable(false)
+            .movable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("Open an existing project or create a new one to begin.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    do_new = ui.button("New project…").clicked();
+                    do_open = ui.button("Open project…").clicked();
+                });
+
+                if !recents.is_empty() {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label("Recent projects:");
+                    for path in &recents {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            if ui.button(name).clicked() {
+                                open_path = Some(path.clone());
+                            }
+                        }
+                    }
+                }
+            });
+
+        if do_new {
+            self.state.borrow_mut().new_project();
+        } else if do_open {
+            self.state.borrow_mut().open_project();
+        } else if let Some(path) = open_path {
+            self.state.borrow_mut().open_project_path(&path);
+        }
+    }
 }
 
 impl App for YClassApp {
@@ -42,6 +95,12 @@ impl App for YClassApp {
             let dpi = self.state.borrow().config.dpi.unwrap_or(1.);
             ctx.set_pixels_per_point(dpi);
         });
+
+        // A project must be open. Until one is, show a blocking gate and nothing else.
+        if self.state.borrow().last_opened_project.is_none() {
+            self.show_project_gate(ctx);
+            return;
+        }
 
         // Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z), unless a text field is capturing the keystroke.
         if !ctx.egui_wants_keyboard_input() {
