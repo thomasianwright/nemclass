@@ -1,10 +1,73 @@
-use super::{create_text_format, EditingState, Field, HexField, NamedState};
-use crate::{app::is_valid_ident, context::InspectionContext, FID_M};
+use super::{create_text_format, EditingState, Field, FieldResponse, HexField, NamedState};
+use crate::{
+    app::is_valid_ident,
+    clipboard::{self, ClipboardPayload},
+    context::{InspectionContext, Selection},
+    project::store_fields,
+    FID_M,
+};
 use eframe::{
-    egui::{Context, FontSelection, Key, Label, Modifiers, Sense, TextEdit, Ui},
+    egui::{Context, FontSelection, Key, Label, Modifiers, Response, Sense, TextEdit, Ui},
     epaint::{text::LayoutJob, Color32, Stroke},
 };
 use std::fmt::Display;
+
+/// Handles selection-on-click and attaches the copy/paste context menu to a field row's leading
+/// (offset/address) label. Returns `Some(FieldResponse::Paste(..))` when the user picks "Paste".
+///
+/// Copy actions are self-contained (they serialize via [`store_fields`] / read process memory and
+/// write to the clipboard). Paste is bubbled up because it needs mutable access to the class list.
+pub fn field_row_response(
+    r: &Response,
+    field: &dyn Field,
+    ctx: &mut InspectionContext,
+) -> Option<FieldResponse> {
+    if r.clicked() {
+        ctx.select(field.id());
+    }
+
+    let mut response = None;
+    r.context_menu(|ui| {
+        ui.set_width(130.);
+
+        if ui.button("Copy field").clicked() {
+            let data = store_fields(std::iter::once(field), ctx.class_list.classes());
+            clipboard::write(ui.ctx(), &ClipboardPayload::Fields(data));
+            ui.close();
+        }
+
+        if ui.button("Copy value").clicked() {
+            let mut bytes = vec![0u8; field.size()];
+            ctx.process.read(ctx.address + ctx.offset, &mut bytes);
+            clipboard::write(
+                ui.ctx(),
+                &ClipboardPayload::Value {
+                    kind: field.kind(),
+                    bytes,
+                },
+            );
+            ui.close();
+        }
+
+        if ui.button("Copy address").clicked() {
+            clipboard::write(ui.ctx(), &ClipboardPayload::Address(ctx.address + ctx.offset));
+            ui.close();
+        }
+
+        ui.separator();
+
+        if ui.button("Paste").clicked() {
+            response = Some(FieldResponse::Paste(Selection {
+                address: ctx.address + ctx.offset,
+                container_id: ctx.current_container,
+                field_id: field.id(),
+            }));
+            ui.close();
+        }
+    });
+
+    response
+}
 
 pub fn display_field_prelude(
     egui_ctx: &Context,
@@ -20,19 +83,19 @@ pub fn display_field_prelude(
         }
 
         if egui_ctx.input(|i| i.key_pressed(Key::C))
-            && egui_ctx.input(|i| i.modifiers.matches(Modifiers::CTRL))
+            && egui_ctx.input(|i| i.modifiers.matches_exact(Modifiers::CTRL))
             && ctx.is_selected(field.id())
         {
-            egui_ctx.output_mut(|o| o.copied_text = format!("{:X}", ctx.address + ctx.offset));
+            egui_ctx.copy_text(format!("{:X}", ctx.address + ctx.offset));
         }
 
         if egui_ctx.input(|i| i.key_pressed(Key::C))
-            && egui_ctx.input(|i| i.modifiers.matches(Modifiers::CTRL | Modifiers::SHIFT))
+            && egui_ctx.input(|i| i.modifiers.matches_exact(Modifiers::CTRL | Modifiers::SHIFT))
             && ctx.is_selected(field.id())
         {
             let mut buf = [0; 8];
             ctx.process.read(ctx.address + ctx.offset, &mut buf[..]);
-            egui_ctx.output_mut(|o| o.copied_text = format!("{:X}", usize::from_ne_bytes(buf)));
+            egui_ctx.copy_text(format!("{:X}", usize::from_ne_bytes(buf)));
         }
 
         tf
@@ -66,7 +129,7 @@ pub fn display_field_value<T: Display>(
         if *address == ctx.address + ctx.offset {
             let mut w = buf
                 .chars()
-                .map(|c| ui.fonts(|f| f.glyph_width(&FID_M, c)))
+                .map(|c| ui.fonts_mut(|f| f.glyph_width(&FID_M, c)))
                 .sum::<f32>();
             if w > 80. {
                 w += 10.
@@ -129,7 +192,7 @@ pub fn display_field_name(
         let name = &mut *state.name.borrow_mut();
         let w = name
             .chars()
-            .map(|c| ui.fonts(|f| f.glyph_width(&FID_M, c)))
+            .map(|c| ui.fonts_mut(|f| f.glyph_width(&FID_M, c)))
             .sum::<f32>()
             .max(80.)
             + 32.;

@@ -5,7 +5,11 @@ use crate::{
     process::Process,
     state::StateRef,
 };
-use eframe::{egui::Context, epaint::Color32, App, Frame};
+use eframe::{
+    egui::{Ui, ViewportCommand},
+    epaint::Color32,
+    App, Frame,
+};
 use std::{sync::Once, time::Duration};
 
 pub struct YClassApp {
@@ -27,7 +31,9 @@ impl YClassApp {
 }
 
 impl App for YClassApp {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         ctx.request_repaint_after(Duration::from_millis(100));
 
         static DPI_INIT: Once = Once::new();
@@ -177,7 +183,7 @@ impl App for YClassApp {
                     .try_write()
                 {
                     *process = None;
-                    frame.set_window_title("YClass");
+                    ctx.send_viewport_cmd(ViewportCommand::Title("YClass".to_owned()));
                 } else {
                     state.toasts.warning("Process is currently in use");
                 }
@@ -192,7 +198,9 @@ impl App for YClassApp {
                 {
                     match Process::attach(pid, &state.config) {
                         Ok(proc) => {
-                            frame.set_window_title(&format!("YClass - Attached to {pid}"));
+                            ctx.send_viewport_cmd(ViewportCommand::Title(format!(
+                                "YClass - Attached to {pid}"
+                            )));
                             if let Process::Internal((op, _)) = &proc {
                                 match op.name() {
                                     Ok(name) => {
@@ -225,14 +233,14 @@ impl App for YClassApp {
         self.class_list.show(ctx);
         self.inspector.show(ctx);
 
-        let mut style = (*ctx.style()).clone();
+        let mut style = (*ctx.global_style()).clone();
         let saved = style.clone();
         style.visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0x10, 0x10, 0x10);
         style.visuals.widgets.noninteractive.fg_stroke.color = Color32::LIGHT_GRAY;
-        ctx.set_style(style);
+        ctx.set_global_style(style);
 
         self.state.borrow_mut().toasts.show(ctx);
-        ctx.set_style(saved);
+        ctx.set_global_style(saved);
     }
 }
 

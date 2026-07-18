@@ -1,5 +1,10 @@
 use crate::{
-    address::parse_address, context::InspectionContext, field::FieldResponse, state::StateRef,
+    address::parse_address,
+    clipboard::{self, ClipboardPayload, ParsedPaste},
+    context::InspectionContext,
+    field::FieldResponse,
+    project::load_fields_into,
+    state::StateRef,
     FID_M,
 };
 use eframe::{
@@ -54,7 +59,7 @@ impl InspectorPanel {
                         ui.spacing_mut().text_edit_width = self
                             .address_buffer
                             .chars()
-                            .map(|c| ui.fonts(|f| f.glyph_width(&FID_M, c)))
+                            .map(|c| ui.fonts_mut(|f| f.glyph_width(&FID_M, c)))
                             .sum::<f32>()
                             .max(160.);
                         let selected_class = state.class_list.selected_class().unwrap();
@@ -102,7 +107,7 @@ impl InspectorPanel {
         let class = state.class_list.selected_class()?;
 
         let mut new_class = None;
-        #[allow(clippy::single_match)]
+        let mut paste_req = None;
         ScrollArea::vertical()
             .auto_shrink([false, true])
             .hscroll(true)
@@ -115,6 +120,7 @@ impl InspectorPanel {
                     Some(FieldResponse::NewClass(name, id)) => new_class = Some((name, id)),
                     Some(FieldResponse::LockScroll) => self.allow_scroll = false,
                     Some(FieldResponse::UnlockScroll) => self.allow_scroll = true,
+                    Some(FieldResponse::Paste(sel)) => paste_req = Some(sel),
                     None => {}
                 }
             });
@@ -122,6 +128,43 @@ impl InspectorPanel {
 
         if let Some((name, id)) = new_class {
             state.class_list.add_class_with_id(name, id);
+        }
+
+        // Apply a paste requested from a field's context menu, dispatching on the clipboard
+        // payload. Inlined so the disjoint borrows of `process_lock` (state.process) and
+        // `state.class_list`/`state.toasts` are seen as field-splits by the borrow checker.
+        if let Some(sel) = paste_req {
+            if let Some(text) = clipboard::read() {
+                match clipboard::parse(&text) {
+                    ParsedPaste::Payload(ClipboardPayload::Fields(data)) => {
+                        // Insert the copied field(s) right after the field the menu was on.
+                        let pos = state
+                            .class_list
+                            .by_id(sel.container_id)
+                            .and_then(|c| c.fields.iter().position(|f| f.id() == sel.field_id))
+                            .map(|p| p + 1);
+                        if let Some(pos) = pos {
+                            load_fields_into(&mut state.class_list, sel.container_id, pos, data);
+                            state.dummy = false;
+                        }
+                    }
+                    ParsedPaste::Payload(ClipboardPayload::Value { bytes, .. }) => {
+                        if let Some(proc) = process_lock.as_ref() {
+                            proc.write(sel.address, &bytes);
+                            state.toasts.info("Pasted value into memory");
+                        }
+                    }
+                    ParsedPaste::Payload(ClipboardPayload::Address(addr))
+                    | ParsedPaste::Address(addr) => {
+                        if let Some(class) = state.class_list.selected_class() {
+                            class.address.set(addr);
+                        }
+                    }
+                    ParsedPaste::None => {
+                        state.toasts.error("Clipboard has no pasteable content");
+                    }
+                }
+            }
         }
 
         Some(())

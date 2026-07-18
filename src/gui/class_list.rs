@@ -1,6 +1,8 @@
 use crate::{
     app::is_valid_ident,
     class::{Class, ClassId},
+    clipboard::{self, ClipboardPayload, ParsedPaste},
+    project::{load_fields_into, store_fields},
     state::StateRef,
 };
 use eframe::{
@@ -12,6 +14,8 @@ use std::mem::take;
 enum RequestedAction {
     Delete(ClassId),
     ToggleSelection(ClassId),
+    CopyClass(ClassId),
+    PasteInto(ClassId),
 }
 
 struct ClassEditState {
@@ -157,11 +161,11 @@ impl ClassListPanel {
                             }
 
                             r.context_menu(|ui| {
-                                ui.set_width(80.);
+                                ui.set_width(90.);
 
                                 ui.vertical_centered_justified(|ui| {
                                     if ui.button("Rename").clicked() {
-                                        ui.close_menu();
+                                        ui.close();
 
                                         self.edit_state = Some(ClassEditState {
                                             new_name: class.name.clone(),
@@ -170,8 +174,20 @@ impl ClassListPanel {
                                         });
                                     }
 
+                                    if ui.button("Copy class").clicked() {
+                                        ui.close();
+
+                                        action = Some(RequestedAction::CopyClass(class.id()));
+                                    }
+
+                                    if ui.button("Paste").clicked() {
+                                        ui.close();
+
+                                        action = Some(RequestedAction::PasteInto(class.id()));
+                                    }
+
                                     if ui.button("Delete").clicked() {
-                                        ui.close_menu();
+                                        ui.close();
 
                                         action = Some(RequestedAction::Delete(class.id()));
                                     }
@@ -188,6 +204,31 @@ impl ClassListPanel {
                                 *selected = None;
                             } else {
                                 *selected = Some(cid);
+                            }
+                        }
+                        RequestedAction::CopyClass(cid) => {
+                            if let Some(class) = state.class_list.by_id(cid) {
+                                let data = store_fields(
+                                    class.fields.iter().map(|f| f.as_ref()),
+                                    state.class_list.classes(),
+                                );
+                                clipboard::write(ui.ctx(), &ClipboardPayload::Fields(data));
+                            }
+                        }
+                        RequestedAction::PasteInto(cid) => {
+                            match clipboard::read().as_deref().map(clipboard::parse) {
+                                Some(ParsedPaste::Payload(ClipboardPayload::Fields(data))) => {
+                                    let end = state
+                                        .class_list
+                                        .by_id(cid)
+                                        .map(|c| c.fields.len())
+                                        .unwrap_or(0);
+                                    load_fields_into(&mut state.class_list, cid, end, data);
+                                    state.dummy = false;
+                                }
+                                _ => {
+                                    state.toasts.error("Clipboard has no field data to paste");
+                                }
                             }
                         }
                     }

@@ -1,12 +1,12 @@
 use super::{
-    create_text_format, display_field_name, display_field_prelude, display_field_value, next_id,
-    CodegenData, Field, FieldId, FieldKind, FieldResponse, NamedState,
+    create_text_format, display_field_name, display_field_prelude, display_field_value,
+    field_row_response, next_id, CodegenData, Field, FieldId, FieldKind, FieldResponse, NamedState,
 };
 use crate::{address::parse_address, context::InspectionContext, generator::Generator, FID_M};
 use eframe::{
     egui::{
-        collapsing_header::CollapsingState, popup_below_widget, Id, Label, RichText, Sense,
-        TextFormat, Ui,
+        collapsing_header::CollapsingState, popup_below_widget, Id, Label, PopupCloseBehavior,
+        RichText, Sense, TextFormat, Ui,
     },
     epaint::{text::LayoutJob, Color32},
 };
@@ -36,7 +36,12 @@ impl PointerField {
         }
     }
 
-    fn show_header(&self, ui: &mut Ui, ctx: &mut InspectionContext, address: usize) {
+    fn show_header(
+        &self,
+        ui: &mut Ui,
+        ctx: &mut InspectionContext,
+        address: usize,
+    ) -> Option<FieldResponse> {
         let class = self.class_id.get().and_then(|id| ctx.class_list.by_id(id));
 
         let (text, exists) = if let Some(cl) = class {
@@ -49,9 +54,8 @@ impl PointerField {
         display_field_prelude(ui.ctx(), self, ctx, &mut job);
         job.append(" ", 0., TextFormat::default());
 
-        if ui.add(Label::new(job).sense(Sense::click())).clicked() {
-            ctx.select(self.id);
-        }
+        let r = ui.add(Label::new(job).sense(Sense::click()));
+        let menu_resp = field_row_response(&r, self, ctx);
 
         display_field_name(self, ui, ctx, &self.state, Color32::BROWN);
 
@@ -104,16 +108,24 @@ impl PointerField {
             ctx.select(self.id);
         }
 
-        popup_below_widget(ui, Id::new(ctx.current_id), &r, |ui| {
-            ui.set_width(80.);
-            ui.vertical_centered_justified(|ui| {
-                for cl in ctx.class_list.classes() {
-                    if ui.button(&cl.name).clicked() {
-                        self.class_id.set(Some(cl.id()));
+        popup_below_widget(
+            ui,
+            Id::new(ctx.current_id),
+            &r,
+            PopupCloseBehavior::CloseOnClickOutside,
+            |ui| {
+                ui.set_width(80.);
+                ui.vertical_centered_justified(|ui| {
+                    for cl in ctx.class_list.classes() {
+                        if ui.button(&cl.name).clicked() {
+                            self.class_id.set(Some(cl.id()));
+                        }
                     }
-                }
-            });
-        });
+                });
+            },
+        );
+
+        menu_resp
     }
 
     fn show_body(
@@ -143,7 +155,7 @@ impl PointerField {
                 selection: ctx.selection,
                 current_container: cid,
                 // Will be immideately reassigned.
-                current_id: Id::null(),
+                current_id: Id::NULL,
                 process: ctx.process,
                 toasts: ctx.toasts,
                 level_rng: &rng,
@@ -190,8 +202,6 @@ impl Field for PointerField {
     }
 
     fn draw(&self, ui: &mut Ui, ctx: &mut InspectionContext) -> Option<FieldResponse> {
-        let mut response = None;
-
         // TODO(ItsEthra): Again, pointer size differs in 32-bit processes.
         let mut buf = [0; 8];
         ctx.process.read(ctx.address + ctx.offset, &mut buf);
@@ -202,15 +212,14 @@ impl Field for PointerField {
         }
 
         let state = CollapsingState::load_with_default_open(ui.ctx(), ctx.current_id, false);
-        let body = state
+        let (_, header, body) = state
             .show_header(ui, |ui| self.show_header(ui, ctx, address))
-            .body(|ui| self.show_body(ui, ctx, address))
-            .2;
-        let body = body.and_then(|inner| inner.inner);
+            .body(|ui| self.show_body(ui, ctx, address));
 
-        if let Some(new) = body {
-            response = Some(new);
-        }
+        // Body responses (e.g. nested `NewClass`) take priority; the header contributes a
+        // context-menu paste request when there's nothing from the body.
+        let body_resp = body.and_then(|inner| inner.inner);
+        let response = body_resp.or(header.inner);
 
         ctx.offset += self.size();
         response

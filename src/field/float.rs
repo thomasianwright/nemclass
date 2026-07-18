@@ -1,6 +1,6 @@
 use super::{
-    display_field_name, display_field_prelude, display_field_value, next_id, CodegenData, Field,
-    FieldId, FieldKind, FieldResponse, NamedState,
+    display_field_name, display_field_prelude, display_field_value, field_row_response, next_id,
+    CodegenData, Field, FieldId, FieldKind, FieldResponse, NamedState,
 };
 use crate::{context::InspectionContext, generator::Generator};
 use eframe::{
@@ -48,13 +48,13 @@ impl<const N: usize> Field for FloatField<N> {
         let address = ctx.address + ctx.offset;
         ctx.process.read(address, &mut buf);
 
+        let mut resp = None;
         ui.horizontal(|ui| {
             let mut job = LayoutJob::default();
             display_field_prelude(ui.ctx(), self, ctx, &mut job);
 
-            if ui.add(Label::new(job).sense(Sense::click())).clicked() {
-                ctx.select(self.id);
-            }
+            let r = ui.add(Label::new(job).sense(Sense::click()));
+            resp = field_row_response(&r, self, ctx);
 
             display_field_name(self, ui, ctx, &self.state, Color32::LIGHT_RED);
             display_field_value(
@@ -91,7 +91,7 @@ impl<const N: usize> Field for FloatField<N> {
         });
 
         ctx.offset += N;
-        None
+        resp
     }
 
     fn codegen(&self, generator: &mut dyn Generator, _: &CodegenData) {

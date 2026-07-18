@@ -6,8 +6,8 @@ use eframe::{
 use crate::FID_M;
 
 use super::{
-    display_field_name, display_field_prelude, display_field_value, next_id, Field, FieldId,
-    FieldKind, NamedState,
+    display_field_name, display_field_prelude, display_field_value, field_row_response, next_id,
+    Field, FieldId, FieldKind, NamedState,
 };
 
 pub struct StringPointerField {
@@ -55,12 +55,12 @@ impl Field for StringPointerField {
         let mut str_buf = [0; 64];
         ctx.process.read(address, &mut str_buf);
 
+        let mut resp = None;
         ui.horizontal(|ui| {
             let mut job = LayoutJob::default();
             display_field_prelude(ui.ctx(), self, ctx, &mut job);
-            if ui.add(Label::new(job).sense(Sense::click())).clicked() {
-                ctx.select(self.id);
-            }
+            let r = ui.add(Label::new(job).sense(Sense::click()));
+            resp = field_row_response(&r, self, ctx);
             display_field_name(self, ui, ctx, &self.state, Color32::LIGHT_RED);
             if ctx.process.can_read(address) {
                 display_field_value(
@@ -94,7 +94,7 @@ impl Field for StringPointerField {
             }
         });
         ctx.offset += self.size();
-        None
+        resp
     }
 
     fn codegen(&self, generator: &mut dyn crate::generator::Generator, _: &super::CodegenData) {

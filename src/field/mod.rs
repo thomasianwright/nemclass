@@ -15,7 +15,12 @@ pub use string_pointer::*;
 mod boolean;
 pub use boolean::*;
 
-use crate::{class::Class, context::InspectionContext, generator::Generator, FID_M};
+use crate::{
+    class::Class,
+    context::{InspectionContext, Selection},
+    generator::Generator,
+    FID_M,
+};
 use eframe::{
     egui::{Id, TextFormat, Ui},
     epaint::{Color32, Stroke},
@@ -28,6 +33,9 @@ pub enum FieldResponse {
     NewClass(String, usize),
     LockScroll,
     UnlockScroll,
+    /// A paste was requested from a field's context menu. Carries the target field's location so
+    /// the inspector can apply it (see [`crate::gui::InspectorPanel`]).
+    Paste(Selection),
 }
 
 pub trait Field {

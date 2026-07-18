@@ -9,6 +9,7 @@ compile_error!("Only X64 targets are supported.");
 mod address;
 mod app;
 mod class;
+mod clipboard;
 mod config;
 mod context;
 mod field;
@@ -22,13 +23,13 @@ mod value;
 
 use config::YClassConfig;
 use eframe::{
-    egui::{FontData, FontDefinitions, Key, Modifiers},
+    egui::{FontData, FontDefinitions, Key, Modifiers, Visuals},
     epaint::{FontFamily, FontId},
-    NativeOptions, Theme,
+    NativeOptions,
 };
 use hotkeys::HotkeyManager;
 use state::GlobalState;
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 
 /// Monospaced font id.
 const FID_M: FontId = FontId::monospace(16.);
@@ -36,18 +37,18 @@ const FID_M: FontId = FontId::monospace(16.);
 fn main() {
     eframe::run_native(
         "YClass",
-        NativeOptions {
-            default_theme: Theme::Dark,
-            ..Default::default()
-        },
+        NativeOptions::default(),
         Box::new(|cc| {
             let config = YClassConfig::load_or_default();
+            cc.egui_ctx.set_visuals(Visuals::dark());
             cc.egui_ctx.set_pixels_per_point(config.dpi.unwrap_or(1.));
 
             let mut fonts = FontDefinitions::default();
             fonts.font_data.insert(
                 "roboto-mono".into(),
-                FontData::from_static(include_bytes!("../fonts/RobotoMono-Regular.ttf")),
+                Arc::new(FontData::from_static(include_bytes!(
+                    "../fonts/RobotoMono-Regular.ttf"
+                ))),
             );
             fonts
                 .families
@@ -61,12 +62,12 @@ fn main() {
             hotkeys.register("attach_recent", Key::A, Modifiers::ALT | Modifiers::CTRL);
             hotkeys.register("detach_process", Key::D, Modifiers::ALT);
 
-            Box::new(app::YClassApp::new(Box::leak(Box::new(RefCell::new(
-                GlobalState {
+            Ok(Box::new(app::YClassApp::new(Box::leak(Box::new(
+                RefCell::new(GlobalState {
                     config,
                     hotkeys,
                     ..Default::default()
-                },
+                }),
             )))))
         }),
     )

@@ -1,6 +1,6 @@
 use super::{
-    create_text_format, display_field_prelude, next_id, CodegenData, Field, FieldId, FieldKind,
-    FieldResponse,
+    create_text_format, display_field_prelude, field_row_response, next_id, CodegenData, Field,
+    FieldId, FieldKind, FieldResponse,
 };
 use crate::{context::InspectionContext, generator::Generator};
 use eframe::{
@@ -176,7 +176,7 @@ impl<const N: usize> HexField<N> {
                                 *response = Some(FieldResponse::LockScroll);
                             }
                         } else {
-                            let yd = ui.input(|i| i.scroll_delta.y);
+                            let yd = ui.input(|i| i.smooth_scroll_delta.y);
                             if yd < 0. {
                                 preview.offest = preview.offest.saturating_add(8);
                             } else if yd > 0. {
@@ -248,13 +248,16 @@ impl<const N: usize> Field for HexField<N> {
             display_field_prelude(ui.ctx(), self, ctx, &mut job);
             self.byte_view(ctx, &mut job, &buf);
 
-            if ui.add(Label::new(job).sense(Sense::click())).clicked() {
-                ctx.select(self.id);
-            }
+            let r = ui.add(Label::new(job).sense(Sense::click()));
+            let menu_resp = field_row_response(&r, self, ctx);
 
             self.int_view(ui, ctx, &buf);
             self.float_view(ui, ctx, &buf);
             self.pointer_view(ui, ctx, &buf, &mut response);
+
+            if menu_resp.is_some() {
+                response = menu_resp;
+            }
         });
 
         ctx.offset += N;

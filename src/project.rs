@@ -1,13 +1,13 @@
 /// This module contains structures that serialize/deserialize project data(i.e. classes).
 use crate::{
-    class::{Class, ClassList},
+    class::{Class, ClassId, ClassList},
     field::{allocate_padding, CodegenData, Field, FieldKind, PointerField},
     generator::Generator,
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DataField {
+pub(crate) struct DataField {
     name: String,
     offset: usize,
     kind: FieldKind,
@@ -162,5 +162,130 @@ impl ProjectData {
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         ron::to_string(self).unwrap()
+    }
+}
+
+/// Serializes `fields` into flat [`DataField`]s (with 0-based offsets), reusing the exact
+/// project codegen path so pointer/nested-class metadata is captured. Used for clipboard copy.
+pub(crate) fn store_fields<'a>(
+    fields: impl IntoIterator<Item = &'a dyn Field>,
+    classes: &[Class],
+) -> Vec<DataField> {
+    let mut datagen = ProjectDataGenerator::default();
+    let dynam = &mut &mut datagen as &mut dyn Generator;
+    let data = CodegenData { classes };
+
+    dynam.begin_class("_clipboard");
+    for f in fields {
+        f.codegen(dynam, &data);
+    }
+    dynam.end_class();
+
+    datagen
+        .classes
+        .into_iter()
+        .next()
+        .map(|c| c.fields)
+        .unwrap_or_default()
+}
+
+/// Reconstructs `fields` (produced by [`store_fields`]) into the class `cid`, inserting them at
+/// `pos`. Mirrors [`ProjectData::load`]'s pointer/nested-class handling. Used for clipboard paste.
+pub(crate) fn load_fields_into(
+    list: &mut ClassList,
+    cid: ClassId,
+    pos: usize,
+    mut fields: Vec<DataField>,
+) {
+    fields.sort_by_key(|f| f.offset);
+    let base = fields.first().map(|f| f.offset).unwrap_or(0);
+
+    let mut built: Vec<Box<dyn Field>> = vec![];
+    let mut current_offset = 0;
+
+    for DataField {
+        offset,
+        name,
+        kind,
+        metadata,
+    } in fields
+    {
+        let rel = offset - base;
+        if rel > current_offset {
+            built.extend(allocate_padding(rel - current_offset));
+        }
+
+        match kind {
+            FieldKind::Ptr => {
+                let classname = metadata.as_deref();
+                let refid = if let Some(refclass) = classname.and_then(|n| list.by_name(n)) {
+                    refclass.id()
+                } else {
+                    list.add_class(
+                        classname
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("C{offset:X}")),
+                    )
+                };
+                built.push(
+                    Box::new(PointerField::new_with_class_id(name, refid)) as Box<dyn Field>
+                );
+            }
+            other => built.push(other.into_field(Some(name))),
+        }
+
+        current_offset = rel + kind.size();
+    }
+
+    if let Some(class) = list.by_id_mut(cid) {
+        let insert_at = pos.min(class.fields.len());
+        for (i, field) in built.into_iter().enumerate() {
+            class.fields.insert(insert_at + i, field);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_fields_into, store_fields, DataField};
+    use crate::{class::ClassList, field::FieldKind};
+
+    /// Copies typed fields from one class, round-trips them through the same RON path the
+    /// clipboard uses, and pastes them into another class — mirroring structural copy/paste.
+    #[test]
+    fn fields_clipboard_roundtrip() {
+        let mut list = ClassList::EMPTY;
+        let src = list.add_empty_class("Src".into());
+        {
+            let class = list.by_id_mut(src).unwrap();
+            class.fields.push(FieldKind::F32.into_field(Some("speed".into())));
+            class.fields.push(FieldKind::F64.into_field(Some("pos".into())));
+            class.fields.push(FieldKind::Bool.into_field(Some("alive".into())));
+        }
+
+        // Copy: serialize the source fields, then RON round-trip like `clipboard::write`/`parse`.
+        let data = {
+            let class = list.by_id(src).unwrap();
+            store_fields(class.fields.iter().map(|f| f.as_ref()), list.classes())
+        };
+        assert_eq!(
+            data.iter().map(|f| f.kind).collect::<Vec<_>>(),
+            vec![FieldKind::F32, FieldKind::F64, FieldKind::Bool],
+        );
+        let text = ron::to_string(&data).unwrap();
+        let back: Vec<DataField> = ron::from_str(&text).unwrap();
+
+        // Paste into a fresh class and confirm the fields are reconstructed in order.
+        let dst = list.add_empty_class("Dst".into());
+        load_fields_into(&mut list, dst, 0, back);
+
+        let kinds = list
+            .by_id(dst)
+            .unwrap()
+            .fields
+            .iter()
+            .map(|f| f.kind())
+            .collect::<Vec<_>>();
+        assert_eq!(kinds, vec![FieldKind::F32, FieldKind::F64, FieldKind::Bool]);
     }
 }

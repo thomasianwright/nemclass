@@ -137,7 +137,7 @@ impl SpiderWindow {
                     return Ok(());
                 };
 
-                fn show_edit<T, E>(
+                fn show_edit<T: 'static, E: 'static>(
                     enabled: bool,
                     ui: &mut Ui,
                     bind: &mut TextEditBind<T, E>,
@@ -308,7 +308,8 @@ impl SpiderWindow {
                 row.col(|ui| _ = ui.label("Current"));
             })
             .body(|body| {
-                body.rows(DATA_HEIGHT, self.results.len(), |idx, mut row| {
+                body.rows(DATA_HEIGHT, self.results.len(), |mut row| {
+                    let idx = row.index();
                     let result = &self.results[idx];
 
                     for offset in result.parent_offsets.iter() {
@@ -344,7 +345,7 @@ impl SpiderWindow {
                         }
                     });
                 })
-            })
+            });
     }
 
     fn collect_options(&self) -> eyre::Result<SearchOptions> {
