@@ -175,6 +175,12 @@ pub fn load_dir(dir: &Path) -> Result<LoadedProject> {
     })
 }
 
+/// Reads just the manifest from a project folder (without parsing classes).
+pub fn read_manifest(dir: &Path) -> Result<Manifest> {
+    let text = fs::read_to_string(dir.join(MANIFEST_FILE))?;
+    toml::from_str(&text).map_err(|e| SdkError::Project(e.to_string()))
+}
+
 /// Lists `scripts/*.lua` under `dir`, sorted.
 pub fn list_scripts(dir: &Path) -> Vec<PathBuf> {
     let scripts_dir = dir.join(SCRIPTS_DIR);
@@ -306,6 +312,41 @@ mod tests {
         assert!(dir.join(CLASSES_DIR).join("Player.toml").exists());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hand_written_class_toml_parses() {
+        // The shape a user hand-edits, including hex offsets and a pointer target.
+        let text = r#"
+            name = "Player"
+
+            [[field]]
+            name = "health"
+            offset = 0x0
+            kind = "I32"
+
+            [[field]]
+            name = "pos"
+            offset = 0x8
+            kind = "Vec3f"
+
+            [[field]]
+            name = "target"
+            offset = 0x18
+            kind = "Ptr"
+            target = "Enemy"
+        "#;
+        let ty = toml::from_str::<ClassFile>(text).unwrap().into_type().unwrap();
+        assert_eq!(ty.name, "Player");
+        assert_eq!(ty.fields[0].kind, FieldKind::I32);
+        assert_eq!(ty.fields[1].offset, 0x8);
+        assert_eq!(
+            ty.fields[1].kind,
+            FieldKind::Vector { components: 3, width: crate::types::FloatWidth::F32 }
+        );
+        assert_eq!(ty.fields[2].offset, 0x18);
+        assert_eq!(ty.fields[2].kind, FieldKind::Ptr);
+        assert_eq!(ty.fields[2].metadata.as_deref(), Some("Enemy"));
     }
 
     #[test]

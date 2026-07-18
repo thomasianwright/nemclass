@@ -11,3 +11,4 @@ path = "src/main.rs"
 
 [dependencies]
 nemclass_scripting = { workspace = true }
+nemclass_sdk = { workspace = true }
