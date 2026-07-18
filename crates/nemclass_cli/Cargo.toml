@@ -1,0 +1,13 @@
+[package]
+name = "nemclass_cli"
+version = "0.1.0"
+edition = "2021"
+description = "Headless Lua script runner for nemclass."
+license = "MIT"
+
+[[bin]]
+name = "nemclass-cli"
+path = "src/main.rs"
+
+[dependencies]
+nemclass_scripting = { workspace = true }

@@ -2032,6 +2032,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nemclass_cli"
+version = "0.1.0"
+dependencies = [
+ "nemclass_scripting",
+]
+
+[[package]]
 name = "nemclass_memory"
 version = "0.1.0"
 dependencies = [
