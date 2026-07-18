@@ -8,7 +8,7 @@ use eframe::{
     egui::{Button, Context, CornerRadius, Frame, Margin, RichText, TopBottomPanel, Ui, WidgetText},
     epaint::{vec2, Color32},
 };
-use memflex::external::ProcessIterator;
+use nemclass_memory::external::ProcessIterator;
 
 macro_rules! create_change_field_type_group {
     ($ui:ident, $r:ident, $fg:ident, $bg:ident, $($size:ident),*) => {

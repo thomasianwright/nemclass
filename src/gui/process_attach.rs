@@ -3,7 +3,7 @@ use eframe::{
     egui::{Context, RichText, ScrollArea, TextEdit, Window},
     epaint::{vec2, FontId},
 };
-use memflex::external::{ProcessEntry, ProcessIterator};
+use nemclass_memory::external::{ProcessEntry, ProcessIterator};
 
 pub struct ProcessAttachWindow {
     shown: bool,

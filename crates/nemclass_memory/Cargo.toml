@@ -1,0 +1,40 @@
+[package]
+name = "nemclass_memory"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+
+[features]
+default = ["std", "internal"]
+std = ["alloc", "windows", "libc"]
+alloc = []
+internal = ["std"]
+external = ["std"]
+
+[dependencies]
+bitflags = "2.4.0"
+obfstr = "0.4.3"
+paste = "1.0.13"
+
+[target.'cfg(unix)'.dependencies.libc]
+version = "0.2.186"
+optional = true
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62.2"
+optional = true
+features = [
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_System_Console",
+    "Win32_System_Memory",
+    "Win32_Foundation",
+    "Win32_Security",
+]

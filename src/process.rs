@@ -1,6 +1,6 @@
 use crate::config::YClassConfig;
 use libloading::Library;
-use memflex::external::{MemoryRegion, OwnedProcess};
+use nemclass_memory::external::{MemoryRegion, OwnedProcess};
 use std::fs;
 
 pub struct ManagedExtension {
@@ -64,14 +64,14 @@ impl Process {
             return Err(metadata.unwrap_err().into());
         } else {
             #[cfg(unix)]
-            let proc = memflex::external::find_process_by_id(pid)?;
+            let proc = nemclass_memory::external::find_process_by_id(pid)?;
             #[cfg(windows)]
             let proc = {
-                use memflex::types::win::{
+                use nemclass_memory::types::win::{
                     PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
                 };
 
-                memflex::external::open_process_by_id(
+                nemclass_memory::external::open_process_by_id(
                     pid,
                     false,
                     PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION,
