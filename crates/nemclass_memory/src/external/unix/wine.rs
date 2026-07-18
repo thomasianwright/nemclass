@@ -118,6 +118,32 @@ pub(crate) fn windows_exe_name(pid: u32) -> Option<String> {
     }
 }
 
+/// Returns the target's pointer width in bytes by reading the PE optional
+/// header magic of the module mapped at `base`: `4` for PE32 (`0x10b`, 32-bit /
+/// WoW64) and `8` for PE32+ (`0x20b`, 64-bit). Returns `None` when there is no
+/// readable PE header at `base` (e.g. a native ELF object).
+pub(crate) fn pointer_size(proc: &OwnedProcess, base: usize) -> Option<usize> {
+    let dos: ImageDosHeader = proc.read(base).ok()?;
+    let magic = dos.e_magic;
+    let e_lfanew = dos.e_lfanew;
+    if magic != IMAGE_DOS_SIGNATURE || e_lfanew < 0 {
+        return None;
+    }
+
+    let nt = base.checked_add(e_lfanew as usize)?;
+    let sig: [u8; 4] = proc.read(nt).ok()?;
+    if sig != IMAGE_NT_SIGNATURE {
+        return None;
+    }
+
+    let opt = nt + IMAGE_NT_SIGNATURE.len() + core::mem::size_of::<ImageFileHeader>();
+    match proc.read::<u16>(opt).ok()? {
+        0x20b => Some(8),
+        0x10b => Some(4),
+        _ => None,
+    }
+}
+
 /// Reads a mapped PE module's true `SizeOfImage` out of the headers Wine maps
 /// at `base` (the image base). Returns `None` when there is no readable PE
 /// header there — e.g. a native `.so`, or a page that can't be read.

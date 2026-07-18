@@ -1,13 +1,24 @@
 mod r#static;
 pub use r#static::*;
 
+#[cfg(feature = "alloc")]
+mod dynamic;
+#[cfg(feature = "alloc")]
+pub use dynamic::*;
+
+/// A single position in a memory pattern: either an exact byte or a wildcard
+/// that matches any byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ByteMatch {
+pub enum ByteMatch {
+    /// Matches only this exact byte.
     Exact(u8),
+    /// Matches any byte (wildcard, `?`/`??` in IDA/PEID syntax).
     Any,
 }
 
 impl ByteMatch {
+    /// Returns `true` if `byte` satisfies this position (always `true` for
+    /// [`ByteMatch::Any`]).
     #[inline]
     pub const fn matches(self, byte: u8) -> bool {
         match self {

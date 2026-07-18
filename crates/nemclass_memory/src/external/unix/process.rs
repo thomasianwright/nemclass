@@ -311,6 +311,34 @@ impl OwnedProcess {
             .ok_or(MfError::ModuleNotFound)
     }
 
+    /// Returns the Windows program name (e.g. `Terraria.exe`) if this process is
+    /// running under Wine, or `None` for a native Linux process. See
+    /// [`wine`](super::wine) for how Wine processes are recognised.
+    pub fn windows_program_name(&self) -> Option<String> {
+        super::wine::windows_exe_name(self.0)
+    }
+
+    /// Returns `true` if this process is running under Wine.
+    pub fn is_wine(&self) -> bool {
+        self.windows_program_name().is_some()
+    }
+
+    /// Returns the target's pointer width in bytes: `4` for a 32-bit / WoW64
+    /// target and `8` for a 64-bit one.
+    ///
+    /// For Wine processes this is read from the main PE image's optional-header
+    /// magic; native Linux processes are assumed to match the host width.
+    pub fn pointer_size(&self) -> usize {
+        if let Some(exe) = self.windows_program_name() {
+            if let Ok(m) = self.find_module(&exe) {
+                if let Some(size) = super::wine::pointer_size(self, m.base as usize) {
+                    return size;
+                }
+            }
+        }
+        core::mem::size_of::<usize>()
+    }
+
     /// Finds all occurences of the pattern in a given range.
     // TODO: Can be optimized
     pub fn find_pattern<'a>(

@@ -325,6 +325,25 @@ impl OwnedProcess {
             .ok_or(MfError::ModuleNotFound)
     }
 
+    /// The Windows program name if the process runs under Wine. Always `None` on
+    /// a native Windows host — provided for cross-platform API symmetry with the
+    /// Unix backend.
+    pub fn windows_program_name(&self) -> Option<String> {
+        None
+    }
+
+    /// Always `false` on a native Windows host (Wine is a Linux concept).
+    pub fn is_wine(&self) -> bool {
+        false
+    }
+
+    /// Returns the target's pointer width in bytes. On Windows this currently
+    /// assumes the host width; WoW64 (32-bit target under a 64-bit host)
+    /// detection via `IsWow64Process` is a future refinement.
+    pub fn pointer_size(&self) -> usize {
+        core::mem::size_of::<usize>()
+    }
+
     /// Finds all occurences of the pattern in a given range.
     // @TODO: Can be optimized
     pub fn find_pattern<'a>(
