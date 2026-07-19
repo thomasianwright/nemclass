@@ -2,6 +2,7 @@
 //! `nemclass_sdk` and returns `Result<T, String>` (the error is shown as a toast).
 
 pub mod classes;
+pub mod debugger;
 pub mod disasm;
 pub mod generator;
 pub mod inspect;

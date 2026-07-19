@@ -133,6 +133,28 @@ export interface SpiderResult {
   value: string | null;
 }
 
+export interface Registers {
+  rax: number; rbx: number; rcx: number; rdx: number;
+  rsi: number; rdi: number; rbp: number; rsp: number; rip: number;
+  r8: number; r9: number; r10: number; r11: number;
+  r12: number; r13: number; r14: number; r15: number;
+  eflags: number;
+}
+
+export interface DebugEvent {
+  tid: number;
+  reason: string;
+  addr: number | null;
+  bpId: number | null;
+  exitCode: number | null;
+}
+
+export interface AccessRecord {
+  insnAddr: number;
+  hits: number;
+  regs: Registers;
+}
+
 export interface FieldInput {
   name: string;
   offset: number;
@@ -273,6 +295,24 @@ export const api = {
   spiderCancel: () => invoke<void>("spider_cancel"),
   spiderAddToTable: (index: number, description: string) =>
     invoke<void>("spider_add_to_table", { index, description }),
+
+  // debugger + access tracer
+  debuggerAttach: (backend: string) => invoke<void>("debugger_attach", { backend }),
+  debuggerDetach: () => invoke<void>("debugger_detach"),
+  debuggerStatus: () => invoke<string | null>("debugger_status"),
+  debuggerThreads: () => invoke<number[]>("debugger_threads"),
+  bpSetSw: (addr: number) => invoke<number>("bp_set_sw", { addr }),
+  bpSetHw: (addr: number, size: number, kind: string) =>
+    invoke<number>("bp_set_hw", { addr, size, kind }),
+  bpClear: (id: number) => invoke<void>("bp_clear", { id }),
+  dbgContinue: () => invoke<void>("dbg_continue"),
+  dbgStep: (tid: number) => invoke<void>("dbg_step", { tid }),
+  dbgRegisters: (tid: number) => invoke<Registers>("dbg_registers", { tid }),
+  dbgSetRegisters: (tid: number, regs: Registers) =>
+    invoke<void>("dbg_set_registers", { tid, regs }),
+  accessStart: (addr: number, size: number, kind: string, backend: string) =>
+    invoke<void>("access_start", { addr, size, kind, backend }),
+  accessStop: () => invoke<void>("access_stop"),
 
   // disassembly / memory map
   memoryMap: () => invoke<MapRegion[]>("memory_map"),

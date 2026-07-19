@@ -1,6 +1,7 @@
 //! The canonical backend state — the Tauri equivalent of the egui GUI's
 //! `GlobalState`, held behind a `Mutex` via Tauri's managed state.
 
+use crate::debugger::{AccessHandle, DebuggerHandle};
 use crate::spider::SpiderHandle;
 use nemclass_sdk::project::Manifest;
 use nemclass_sdk::scan::ScanResults;
@@ -56,6 +57,10 @@ pub struct AppState {
     pub scan_results: Option<ScanResults>,
     /// The current structure-spider search, if any.
     pub spider: Option<SpiderHandle>,
+    /// The attached debugger (runs on its own thread), if any.
+    pub debugger: Option<DebuggerHandle>,
+    /// The running access tracer, if any.
+    pub access: Option<AccessHandle>,
     /// Persisted configuration.
     pub config: Config,
 
@@ -76,6 +81,8 @@ impl AppState {
             freezer: None,
             scan_results: None,
             spider: None,
+            debugger: None,
+            access: None,
             config: Config::default(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -96,6 +103,8 @@ impl AppState {
     /// Detaches: drops the freezer (its `Drop` stops the thread) and the target,
     /// and discards now-stale scan results.
     pub fn clear_target(&mut self) {
+        self.access = None;
+        self.debugger = None;
         self.freezer = None;
         self.target = None;
         self.scan_results = None;

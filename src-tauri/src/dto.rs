@@ -266,6 +266,129 @@ pub struct ScanRowDto {
     pub previous: String,
 }
 
+/// x86-64 register file, both ways over the wire.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistersDto {
+    pub rax: u64,
+    pub rbx: u64,
+    pub rcx: u64,
+    pub rdx: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rbp: u64,
+    pub rsp: u64,
+    pub rip: u64,
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub eflags: u64,
+}
+
+impl RegistersDto {
+    pub fn of(r: &nemclass_sdk::debug::Registers) -> Self {
+        Self {
+            rax: r.rax,
+            rbx: r.rbx,
+            rcx: r.rcx,
+            rdx: r.rdx,
+            rsi: r.rsi,
+            rdi: r.rdi,
+            rbp: r.rbp,
+            rsp: r.rsp,
+            rip: r.rip,
+            r8: r.r8,
+            r9: r.r9,
+            r10: r.r10,
+            r11: r.r11,
+            r12: r.r12,
+            r13: r.r13,
+            r14: r.r14,
+            r15: r.r15,
+            eflags: r.eflags,
+        }
+    }
+
+    /// Applies these values onto an existing register file (segments untouched).
+    pub fn apply(&self, r: &mut nemclass_sdk::debug::Registers) {
+        r.rax = self.rax;
+        r.rbx = self.rbx;
+        r.rcx = self.rcx;
+        r.rdx = self.rdx;
+        r.rsi = self.rsi;
+        r.rdi = self.rdi;
+        r.rbp = self.rbp;
+        r.rsp = self.rsp;
+        r.rip = self.rip;
+        r.r8 = self.r8;
+        r.r9 = self.r9;
+        r.r10 = self.r10;
+        r.r11 = self.r11;
+        r.r12 = self.r12;
+        r.r13 = self.r13;
+        r.r14 = self.r14;
+        r.r15 = self.r15;
+        r.eflags = self.eflags;
+    }
+}
+
+/// A debugger stop event pushed to the frontend.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugEventDto {
+    pub tid: u32,
+    pub reason: String,
+    pub addr: Option<u64>,
+    pub bp_id: Option<u64>,
+    pub exit_code: Option<i32>,
+}
+
+impl DebugEventDto {
+    pub fn of(ev: nemclass_sdk::debug::DebugEvent) -> Self {
+        use nemclass_sdk::debug::StopReason::*;
+        let (reason, addr, bp_id, exit_code) = match ev.reason {
+            Breakpoint { id, addr } => ("breakpoint", Some(addr as u64), Some(id.0), None),
+            Watchpoint { id, addr } => ("watchpoint", Some(addr as u64), Some(id.0), None),
+            SingleStep => ("singleStep", None, None, None),
+            Signal(s) => ("signal", None, None, Some(s)),
+            Exited(c) => ("exited", None, None, Some(c)),
+            ThreadCreated(_) => ("threadCreated", None, None, None),
+            Unknown => ("unknown", None, None, None),
+        };
+        Self {
+            tid: ev.tid.0,
+            reason: reason.to_string(),
+            addr,
+            bp_id,
+            exit_code,
+        }
+    }
+}
+
+/// One "what accesses this" record pushed to the frontend.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessRecordDto {
+    pub insn_addr: u64,
+    pub hits: u64,
+    pub regs: RegistersDto,
+}
+
+impl AccessRecordDto {
+    pub fn of(r: &nemclass_sdk::access::AccessRecord) -> Self {
+        Self {
+            insn_addr: r.insn_addr as u64,
+            hits: r.hits,
+            regs: RegistersDto::of(&r.regs),
+        }
+    }
+}
+
 /// Spider search progress.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

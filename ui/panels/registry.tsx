@@ -3,6 +3,7 @@
 import { CheatTablePanel } from "./CheatTablePanel";
 import { ClassListPanel } from "./ClassListPanel";
 import { ConsolePanel } from "./ConsolePanel";
+import { DebuggerPanel } from "./DebuggerPanel";
 import { DisasmPanel } from "./DisasmPanel";
 import { GeneratorPanel } from "./GeneratorPanel";
 import { InspectorPanel } from "./InspectorPanel";
@@ -19,6 +20,6 @@ export const panelComponents = {
   spider: () => <SpiderPanel />,
   generator: () => <GeneratorPanel />,
   disasm: () => <DisasmPanel />,
-  debugger: () => <Placeholder title="Debugger" />,
+  debugger: () => <DebuggerPanel />,
   script: () => <Placeholder title="Script Console" />,
 };

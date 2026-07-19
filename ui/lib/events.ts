@@ -1,0 +1,10 @@
+// Thin wrapper over Tauri's event system for backend-pushed events
+// (debugger:stopped, access:hits, …).
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export function on<T>(
+  event: string,
+  cb: (payload: T) => void,
+): Promise<UnlistenFn> {
+  return listen<T>(event, (e) => cb(e.payload));
+}

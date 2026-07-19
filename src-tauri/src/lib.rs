@@ -6,6 +6,7 @@
 //! work (process attach, memory read/write, class schema, disasm, debug, ...).
 
 mod commands;
+mod debugger;
 mod dto;
 mod format;
 mod spider;
@@ -76,6 +77,20 @@ pub fn run() {
             // code generation
             commands::generator::generate_code,
             commands::generator::gen_langs,
+            // debugger + access tracer
+            commands::debugger::debugger_attach,
+            commands::debugger::debugger_detach,
+            commands::debugger::debugger_status,
+            commands::debugger::debugger_threads,
+            commands::debugger::bp_set_sw,
+            commands::debugger::bp_set_hw,
+            commands::debugger::bp_clear,
+            commands::debugger::dbg_continue,
+            commands::debugger::dbg_step,
+            commands::debugger::dbg_registers,
+            commands::debugger::dbg_set_registers,
+            commands::debugger::access_start,
+            commands::debugger::access_stop,
             // disassembly / memory map
             commands::disasm::memory_map,
             commands::disasm::list_modules,
