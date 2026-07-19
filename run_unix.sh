@@ -7,12 +7,12 @@
 # running as your normal user.
 set -e
 
-# 1. Build the frontend assets (embedded into the release binary).
-npm install
-npm run build
-
-# 2. Build the release binary (embeds ../dist; no dev server needed).
-cargo build --release -p nemclass_tauri
+# 1. Build the production app via the Tauri CLI. This runs the frontend build
+#    (beforeBuildCommand) AND generates the *production* context that embeds the
+#    assets — plain `cargo build --release` leaves the binary in dev mode
+#    (it tries to connect to the dev server and shows a blank page).
+pnpm install
+pnpm exec tauri build --no-bundle
 BIN="./target/release/nemclass_tauri"
 
 # 3. Allow attaching without running as root. Either grant the binary the
