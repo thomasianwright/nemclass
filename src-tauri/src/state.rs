@@ -2,7 +2,9 @@
 //! `GlobalState`, held behind a `Mutex` via Tauri's managed state.
 
 use nemclass_sdk::project::Manifest;
+use nemclass_sdk::scan::ScanResults;
 use nemclass_sdk::schema::TypeDef;
+use nemclass_sdk::table::{CheatTable, Freezer};
 use nemclass_sdk::Target;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -45,6 +47,12 @@ pub struct AppState {
     pub dirty: bool,
     /// The attached target, shared with background job threads.
     pub target: Option<Arc<Target>>,
+    /// The cheat table (freeze/watch entries).
+    pub cheat_table: CheatTable,
+    /// Background value freezer, live while attached.
+    pub freezer: Option<Freezer>,
+    /// The latest value-scan result set (for `next_scan`).
+    pub scan_results: Option<ScanResults>,
     /// Persisted configuration.
     pub config: Config,
 
@@ -61,9 +69,43 @@ impl AppState {
             project_dir: None,
             dirty: false,
             target: None,
+            cheat_table: CheatTable::new(),
+            freezer: None,
+            scan_results: None,
             config: Config::default(),
             undo: Vec::new(),
             redo: Vec::new(),
+        }
+    }
+
+    /// Attaches `target`: shares it via `Arc`, spins up a running [`Freezer`], and
+    /// re-pins any already-frozen cheat-table entries.
+    pub fn set_target(&mut self, target: Target) {
+        let arc = Arc::new(target);
+        let mut freezer = Freezer::new(arc.clone());
+        freezer.start();
+        self.target = Some(arc);
+        self.freezer = Some(freezer);
+        self.resync_freezer();
+    }
+
+    /// Detaches: drops the freezer (its `Drop` stops the thread) and the target,
+    /// and discards now-stale scan results.
+    pub fn clear_target(&mut self) {
+        self.freezer = None;
+        self.target = None;
+        self.scan_results = None;
+    }
+
+    /// Rebuilds the freezer's pinned set from the cheat table's frozen entries.
+    pub fn resync_freezer(&mut self) {
+        if let Some(fz) = &self.freezer {
+            fz.clear();
+            for e in self.cheat_table.all_entries() {
+                if let Some(fv) = &e.freeze {
+                    fz.freeze(e.address.clone(), fv.bytes.clone());
+                }
+            }
         }
     }
 

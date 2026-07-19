@@ -138,6 +138,147 @@ pub struct InspectResult {
     pub rows: Vec<FieldRow>,
 }
 
+/// One cheat-table row with its live resolution/value.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheatEntryDto {
+    pub index: usize,
+    pub description: String,
+    pub address: String,
+    pub kind: String,
+    pub resolved: Option<u64>,
+    pub value: Option<String>,
+    pub frozen: bool,
+}
+
+/// A decoded instruction for the disassembly view.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsnDto {
+    pub addr: u64,
+    pub len: usize,
+    pub bytes: String,
+    pub text: String,
+    pub kind: String,
+    pub target: Option<u64>,
+}
+
+impl InsnDto {
+    pub fn of(i: &nemclass_sdk::disasm::Insn) -> Self {
+        use nemclass_sdk::disasm::FlowKind::*;
+        let kind = match i.kind {
+            Seq => "seq",
+            Call => "call",
+            Jump => "jump",
+            CondJump => "condJump",
+            Ret => "ret",
+            Int => "int",
+            Bad => "bad",
+        };
+        let bytes = i
+            .bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        Self {
+            addr: i.addr as u64,
+            len: i.len,
+            bytes,
+            text: i.text.clone(),
+            kind: kind.to_string(),
+            target: i.target.map(|t| t as u64),
+        }
+    }
+}
+
+/// A parsed memory-map region.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MapRegionDto {
+    pub from: u64,
+    pub to: u64,
+    pub size: usize,
+    pub read: bool,
+    pub write: bool,
+    pub exec: bool,
+    pub name: String,
+    pub label: String,
+    pub kind: String,
+}
+
+impl MapRegionDto {
+    pub fn of(r: &nemclass_sdk::disasm::MapRegion) -> Self {
+        use nemclass_sdk::disasm::RegionKind::*;
+        let kind = match r.kind {
+            Module => "module",
+            Heap => "heap",
+            Stack => "stack",
+            Vdso => "vdso",
+            Anon => "anon",
+            Other => "other",
+        };
+        Self {
+            from: r.from as u64,
+            to: r.to as u64,
+            size: r.size(),
+            read: r.read,
+            write: r.write,
+            exec: r.exec,
+            name: r.name.clone(),
+            label: r.label(),
+            kind: kind.to_string(),
+        }
+    }
+}
+
+/// A string found in memory.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StringHitDto {
+    pub addr: u64,
+    pub text: String,
+}
+
+/// A loaded module.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleInfoDto {
+    pub base: u64,
+    pub size: usize,
+    pub name: String,
+}
+
+/// Summary returned after a first/next scan.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanSummaryDto {
+    pub count: usize,
+    pub value_type: String,
+}
+
+/// One scan result row.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanRowDto {
+    pub address: u64,
+    pub value: Option<String>,
+    pub previous: String,
+}
+
+/// A scan comparison, from the frontend.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompareDto {
+    /// One of: exact, unknown, between, greater, less, increased, decreased,
+    /// changed, unchanged, increasedBy, decreasedBy.
+    pub op: String,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub value2: Option<String>,
+}
+
 /// Open-project summary returned after new/open.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

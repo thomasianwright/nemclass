@@ -5,7 +5,6 @@ use crate::state::AppState;
 use nemclass_sdk::{target, Target};
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tauri::State;
 
 /// Lists running processes, sorted by name (case-insensitive) then pid.
@@ -34,7 +33,7 @@ pub fn list_processes() -> Result<Vec<ProcessInfoDto>, String> {
 pub fn attach_pid(state: State<'_, Mutex<AppState>>, pid: u32) -> Result<AttachedDto, String> {
     let target = Target::attach_pid(pid).map_err(|e| e.to_string())?;
     let dto = AttachedDto::of(&target);
-    state.lock().target = Some(Arc::new(target));
+    state.lock().set_target(target);
     Ok(dto)
 }
 
@@ -43,7 +42,7 @@ pub fn attach_pid(state: State<'_, Mutex<AppState>>, pid: u32) -> Result<Attache
 pub fn attach_name(state: State<'_, Mutex<AppState>>, name: String) -> Result<AttachedDto, String> {
     let target = Target::attach_name(&name).map_err(|e| e.to_string())?;
     let dto = AttachedDto::of(&target);
-    state.lock().target = Some(Arc::new(target));
+    state.lock().set_target(target);
     Ok(dto)
 }
 
@@ -56,7 +55,7 @@ pub fn attach_managed(
 ) -> Result<AttachedDto, String> {
     let target = Target::attach_managed(pid, &PathBuf::from(plugin)).map_err(|e| e.to_string())?;
     let dto = AttachedDto::of(&target);
-    state.lock().target = Some(Arc::new(target));
+    state.lock().set_target(target);
     Ok(dto)
 }
 
@@ -71,14 +70,14 @@ pub fn auto_attach(state: State<'_, Mutex<AppState>>) -> Result<AttachedDto, Str
         .ok_or("no auto-attach configured")?;
     let target = Target::from_auto_attach(&spec).map_err(|e| e.to_string())?;
     let dto = AttachedDto::of(&target);
-    state.lock().target = Some(Arc::new(target));
+    state.lock().set_target(target);
     Ok(dto)
 }
 
 /// Detaches from the current target.
 #[tauri::command]
 pub fn detach(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
-    state.lock().target = None;
+    state.lock().clear_target();
     Ok(())
 }
 

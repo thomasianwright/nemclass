@@ -62,6 +62,65 @@ export interface ProjectStatus {
   attached: Attached | null;
 }
 
+export interface CheatEntry {
+  index: number;
+  description: string;
+  address: string;
+  kind: string;
+  resolved: number | null;
+  value: string | null;
+  frozen: boolean;
+}
+
+export interface Insn {
+  addr: number;
+  len: number;
+  bytes: string;
+  text: string;
+  kind: string;
+  target: number | null;
+}
+
+export interface MapRegion {
+  from: number;
+  to: number;
+  size: number;
+  read: boolean;
+  write: boolean;
+  exec: boolean;
+  name: string;
+  label: string;
+  kind: string;
+}
+
+export interface StringHit {
+  addr: number;
+  text: string;
+}
+
+export interface ModuleInfo {
+  base: number;
+  size: number;
+  name: string;
+}
+
+export interface ScanSummary {
+  count: number;
+  valueType: string;
+}
+
+export interface ScanRow {
+  address: number;
+  value: string | null;
+  previous: string;
+}
+
+export interface Compare {
+  op: string;
+  value?: string | null;
+  value2?: string | null;
+}
+
 export interface FieldInput {
   name: string;
   offset: number;
@@ -147,6 +206,54 @@ export const api = {
   getManifest: () => invoke<Manifest>("get_manifest"),
   setManifest: (manifest: Manifest) => invoke<void>("set_manifest", { manifest }),
   projectStatus: () => invoke<ProjectStatus>("project_status"),
+
+  // cheat table
+  tableList: () => invoke<CheatEntry[]>("table_list"),
+  tableAdd: (description: string, address: string, kind: string) =>
+    invoke<void>("table_add", { description, address, kind }),
+  tableUpdate: (index: number, description: string, address: string, kind: string) =>
+    invoke<void>("table_update", { index, description, address, kind }),
+  tableRemove: (index: number) => invoke<void>("table_remove", { index }),
+  tableWrite: (index: number, text: string) =>
+    invoke<void>("table_write", { index, text }),
+  tableFreeze: (index: number, on: boolean) =>
+    invoke<void>("table_freeze", { index, on }),
+
+  // code generation
+  generateCode: (lang: string) => invoke<string>("generate_code", { lang }),
+  genLangs: () => invoke<string[]>("gen_langs"),
+
+  // scanner
+  scanFirst: (
+    valueType: string,
+    compare: Compare,
+    writableOnly: boolean,
+    alignment?: number | null,
+  ) =>
+    invoke<ScanSummary>("scan_first", {
+      valueType,
+      compare,
+      writableOnly,
+      alignment: alignment ?? null,
+    }),
+  scanNext: (compare: Compare) => invoke<ScanSummary>("scan_next", { compare }),
+  scanReset: () => invoke<void>("scan_reset"),
+  scanPage: (offset: number, limit: number) =>
+    invoke<ScanRow[]>("scan_page", { offset, limit }),
+  scanAddToTable: (index: number, description: string) =>
+    invoke<void>("scan_add_to_table", { index, description }),
+
+  // disassembly / memory map
+  memoryMap: () => invoke<MapRegion[]>("memory_map"),
+  listModules: () => invoke<ModuleInfo[]>("list_modules"),
+  disassemble: (start: number, count: number) =>
+    invoke<Insn[]>("disassemble", { start, count }),
+  regionStrings: (start: number, len: number, minLen: number) =>
+    invoke<StringHit[]>("region_strings", { start, len, minLen }),
+  regionFunctions: (start: number, len: number) =>
+    invoke<number[]>("region_functions", { start, len }),
+  regionCalls: (start: number, len: number) =>
+    invoke<number[]>("region_calls", { start, len }),
 };
 
 /** Parses a hex/decimal address string (e.g. "0x1400", "5242880") to a number. */

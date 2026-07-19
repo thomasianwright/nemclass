@@ -52,6 +52,29 @@ pub fn run() {
             commands::inspect::write_value,
             commands::inspect::read_bytes,
             commands::inspect::write_bytes,
+            // scanner
+            commands::scan::scan_first,
+            commands::scan::scan_next,
+            commands::scan::scan_reset,
+            commands::scan::scan_page,
+            commands::scan::scan_add_to_table,
+            // cheat table
+            commands::table::table_list,
+            commands::table::table_add,
+            commands::table::table_update,
+            commands::table::table_remove,
+            commands::table::table_write,
+            commands::table::table_freeze,
+            // code generation
+            commands::generator::generate_code,
+            commands::generator::gen_langs,
+            // disassembly / memory map
+            commands::disasm::memory_map,
+            commands::disasm::list_modules,
+            commands::disasm::disassemble,
+            commands::disasm::region_strings,
+            commands::disasm::region_functions,
+            commands::disasm::region_calls,
             // project
             commands::project::project_new,
             commands::project::project_open,
