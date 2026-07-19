@@ -1,4 +1,4 @@
-import { FilePlus2, Play, Save } from "lucide-react";
+import { AlignLeft, FilePlus2, Play, Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CodeEditor } from "../components/CodeEditor";
 import { api } from "../lib/api";
@@ -49,9 +49,14 @@ export function ScriptConsolePanel() {
 
   const runRef = useRef(run);
   runRef.current = run;
+  const editorRef = useRef<any>(null);
+
+  const format = () => editorRef.current?.getAction("editor.action.formatDocument")?.run();
 
   const onMount = (editor: any, m: any) => {
+    editorRef.current = editor;
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => runRef.current());
+    editor.addCommand(m.KeyMod.Shift | m.KeyMod.Alt | m.KeyCode.KeyF, () => format());
   };
 
   const load = async (n: string) => {
@@ -85,7 +90,7 @@ export function ScriptConsolePanel() {
     <div className="panel-body flex flex-col">
       <div className="flex items-center gap-1.5 border-b border-border bg-panel-2 px-2 py-1.5">
         <select
-          className="input mono w-36"
+          className="input mono w-36 bg-panel-2"
           value=""
           onChange={(e) => load(e.target.value)}
           title="Load script"
@@ -105,6 +110,9 @@ export function ScriptConsolePanel() {
         />
         <button className="btn btn-ghost btn-icon" title="New" onClick={() => { setCode(DEFAULT); setName(""); }}>
           <FilePlus2 size={14} />
+        </button>
+        <button className="btn btn-ghost btn-icon" title="Format (Shift+Alt+F)" onClick={format}>
+          <AlignLeft size={14} />
         </button>
         <button className="btn" title="Save" onClick={save}>
           <Save size={13} /> Save
