@@ -19,5 +19,7 @@ mod scanner;
 pub use scanner::*;
 mod cheat_table;
 pub use cheat_table::*;
+mod debugger;
+pub use debugger::*;
 mod utils;
 pub use utils::*;

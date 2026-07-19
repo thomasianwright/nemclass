@@ -1,6 +1,6 @@
 use super::{
-    CheatTableWindow, GeneratorWindow, ProcessAttachWindow, ProjectSettings, ScannerWindow,
-    ScriptConsole, SpiderWindow,
+    CheatTableWindow, DebuggerWindow, GeneratorWindow, ProcessAttachWindow, ProjectSettings,
+    ScannerWindow, ScriptConsole, SpiderWindow,
 };
 use crate::{
     field::{FieldKind, FloatWidth},
@@ -44,6 +44,7 @@ pub struct ToolBarPanel {
     spider_window: SpiderWindow,
     scanner_window: ScannerWindow,
     cheat_table_window: CheatTableWindow,
+    debugger_window: DebuggerWindow,
     script_console: ScriptConsole,
     project_settings: ProjectSettings,
     state: StateRef,
@@ -58,6 +59,7 @@ impl ToolBarPanel {
             spider_window: SpiderWindow::new(state),
             scanner_window: ScannerWindow::new(state),
             cheat_table_window: CheatTableWindow::new(state),
+            debugger_window: DebuggerWindow::new(state),
             script_console: ScriptConsole::new(state),
             project_settings: ProjectSettings::new(state),
         }
@@ -77,6 +79,8 @@ impl ToolBarPanel {
         self.scanner_window.show(ctx);
         // Shown every frame so frozen entries keep being written even when closed.
         self.cheat_table_window.show(ctx);
+        // Shown every frame so an active trace/debug session keeps polling.
+        self.debugger_window.show(ctx);
         if let Err(e) = self.spider_window.show(ctx) {
             self.state.borrow_mut().toasts.error(e.to_string());
         }
@@ -116,6 +120,10 @@ impl ToolBarPanel {
 
                     if ui.button("Cheat table").clicked() {
                         self.cheat_table_window.toggle();
+                    }
+
+                    if ui.button("Debugger").clicked() {
+                        self.debugger_window.toggle();
                     }
 
                     if ui.button("Script").clicked() {

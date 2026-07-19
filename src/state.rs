@@ -27,6 +27,9 @@ pub struct GlobalState {
     /// The project's cheat table (address + type + freeze entries). Shared so the
     /// scanner can add hits and the cheat-table window can edit/freeze them.
     pub cheat_table: CheatTable,
+    /// One-shot request to open the debugger window and "find what writes" this
+    /// address. Set by the cheat-table window, consumed by the debugger window.
+    pub debug_request: Option<usize>,
     pub hotkeys: HotkeyManager,
     pub class_list: ClassList,
     pub config: YClassConfig,
@@ -66,6 +69,7 @@ impl Default for GlobalState {
             toasts: Toasts::default(),
             process: Arc::default(),
             cheat_table: CheatTable::new(),
+            debug_request: None,
             selection: None,
             dummy: true,
             config,

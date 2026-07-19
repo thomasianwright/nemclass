@@ -135,6 +135,7 @@ impl CheatTableWindow {
         ui.separator();
 
         let mut remove = None;
+        let mut find_writes = None;
         let mut st = self.state.borrow_mut();
         let entries = &mut st.cheat_table.entries;
         if self.write_buf.len() != entries.len() {
@@ -184,6 +185,17 @@ impl CheatTableWindow {
                             }
                         }
                     }
+                    if ui
+                        .small_button("writes?")
+                        .on_hover_text("Find what writes this address (opens Debugger)")
+                        .clicked()
+                    {
+                        if let Some(t) = target {
+                            if let Ok(addr) = entry.resolve(t) {
+                                find_writes = Some(addr);
+                            }
+                        }
+                    }
                     if ui.small_button("✕").clicked() {
                         remove = Some(i);
                     }
@@ -195,6 +207,10 @@ impl CheatTableWindow {
             if i < entries.len() {
                 entries.remove(i);
             }
+        }
+        drop(st);
+        if let Some(addr) = find_writes {
+            self.state.borrow_mut().debug_request = Some(addr);
         }
     }
 }
