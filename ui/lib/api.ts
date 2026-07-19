@@ -62,6 +62,12 @@ export interface ProjectStatus {
   attached: Attached | null;
 }
 
+export interface Config {
+  recentProjects: string[];
+  pollHz: number;
+  layout: string | null;
+}
+
 export interface CheatEntry {
   index: number;
   description: string;
@@ -155,6 +161,13 @@ export interface AccessRecord {
   regs: Registers;
 }
 
+export interface ScriptResult {
+  output: string;
+  error: string | null;
+  export: string | null;
+  merged: boolean;
+}
+
 export interface FieldInput {
   name: string;
   offset: number;
@@ -241,6 +254,11 @@ export const api = {
   setManifest: (manifest: Manifest) => invoke<void>("set_manifest", { manifest }),
   projectStatus: () => invoke<ProjectStatus>("project_status"),
 
+  // config
+  getConfig: () => invoke<Config>("get_config"),
+  setConfig: (config: Config) => invoke<void>("set_config", { config }),
+  setLayout: (layout: string | null) => invoke<void>("set_layout", { layout }),
+
   // cheat table
   tableList: () => invoke<CheatEntry[]>("table_list"),
   tableAdd: (description: string, address: string, kind: string) =>
@@ -276,6 +294,14 @@ export const api = {
     invoke<ScanRow[]>("scan_page", { offset, limit }),
   scanAddToTable: (index: number, description: string) =>
     invoke<void>("scan_add_to_table", { index, description }),
+
+  // scripting
+  scriptRun: (code: string) => invoke<ScriptResult>("script_run", { code }),
+  scriptList: () => invoke<string[]>("script_list"),
+  scriptLoad: (name: string) => invoke<string>("script_load", { name }),
+  scriptSave: (name: string, code: string) =>
+    invoke<void>("script_save", { name, code }),
+  scriptDefinitions: () => invoke<string>("script_definitions"),
 
   // spider
   spiderSearch: (

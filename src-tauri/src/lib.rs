@@ -13,7 +13,7 @@ mod spider;
 mod state;
 
 use parking_lot::Mutex;
-use state::AppState;
+use state::{AppState, Config};
 use tauri::Manager;
 
 /// Builds and runs the Tauri application.
@@ -22,7 +22,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            app.manage(Mutex::new(AppState::new()));
+            let mut st = AppState::new();
+            if let Ok(dir) = app.path().app_config_dir() {
+                st.config = Config::load(&dir);
+            }
+            app.manage(Mutex::new(st));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +81,12 @@ pub fn run() {
             // code generation
             commands::generator::generate_code,
             commands::generator::gen_langs,
+            // scripting
+            commands::script::script_run,
+            commands::script::script_list,
+            commands::script::script_load,
+            commands::script::script_save,
+            commands::script::script_definitions,
             // debugger + access tracer
             commands::debugger::debugger_attach,
             commands::debugger::debugger_detach,
@@ -107,6 +117,10 @@ pub fn run() {
             commands::project::get_manifest,
             commands::project::set_manifest,
             commands::project::project_status,
+            // config
+            commands::config::get_config,
+            commands::config::set_config,
+            commands::config::set_layout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

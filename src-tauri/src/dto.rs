@@ -408,6 +408,17 @@ pub struct SpiderResultDto {
     pub value: Option<String>,
 }
 
+/// Result of running a Lua console script.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptResultDto {
+    pub output: String,
+    pub error: Option<String>,
+    pub export: Option<String>,
+    /// Whether an `EXPORT` project was parsed and merged into the class list.
+    pub merged: bool,
+}
+
 /// A scan comparison, from the frontend.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

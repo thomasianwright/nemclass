@@ -2113,6 +2113,7 @@ name = "nemclass_tauri"
 version = "0.1.0"
 dependencies = [
  "nemclass_memory",
+ "nemclass_scripting",
  "nemclass_sdk",
  "parking_lot",
  "rayon",

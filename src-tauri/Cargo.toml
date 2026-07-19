@@ -23,6 +23,7 @@ rayon = "1"
 # Headless SDK — the whole backend is thin glue over this.
 nemclass_sdk = { workspace = true, features = ["disasm", "libiht", "intel-pt"] }
 nemclass_memory = { workspace = true, features = ["external"] }
+nemclass_scripting = { workspace = true }
 
 [features]
 # Frida debugger backend is opt-in: its build downloads the frida-gum devkit

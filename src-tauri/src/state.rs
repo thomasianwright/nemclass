@@ -9,7 +9,8 @@ use nemclass_sdk::schema::TypeDef;
 use nemclass_sdk::table::{CheatTable, Freezer};
 use nemclass_sdk::Target;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// How deep the undo/redo history goes.
@@ -37,12 +38,31 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    /// Loads `config.json` from `dir`, falling back to defaults.
+    pub fn load(dir: &Path) -> Self {
+        std::fs::read_to_string(dir.join("config.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Writes `config.json` into `dir` (creating it if needed).
+    pub fn save(&self, dir: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let text = serde_json::to_string_pretty(self).unwrap_or_default();
+        std::fs::write(dir.join("config.json"), text)
+    }
+}
+
 /// The whole backend state.
 pub struct AppState {
     /// Project manifest (name + auto-attach).
     pub manifest: Manifest,
     /// The canonical class layouts — mutated directly for all CRUD.
     pub classes: Vec<TypeDef>,
+    /// Per-class base addresses set/read by Lua scripts (nem.class_address).
+    pub class_addresses: HashMap<String, usize>,
     /// The open project directory, if any.
     pub project_dir: Option<PathBuf>,
     /// Whether there are unsaved changes.
@@ -74,6 +94,7 @@ impl AppState {
         Self {
             manifest: Manifest::new("Untitled"),
             classes: Vec::new(),
+            class_addresses: HashMap::new(),
             project_dir: None,
             dirty: false,
             target: None,
