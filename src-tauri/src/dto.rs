@@ -266,6 +266,25 @@ pub struct ScanRowDto {
     pub previous: String,
 }
 
+/// Spider search progress.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpiderStatusDto {
+    pub running: bool,
+    pub count: usize,
+}
+
+/// One spider result row.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpiderResultDto {
+    /// Address expression usable as a cheat-table address.
+    pub expr: String,
+    pub depth: usize,
+    pub address: Option<u64>,
+    pub value: Option<String>,
+}
+
 /// A scan comparison, from the frontend.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

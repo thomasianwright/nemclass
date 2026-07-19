@@ -19,6 +19,7 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 parking_lot = "0.12"
+rayon = "1"
 # Headless SDK — the whole backend is thin glue over this.
 nemclass_sdk = { workspace = true, features = ["disasm", "libiht", "intel-pt"] }
 nemclass_memory = { workspace = true, features = ["external"] }

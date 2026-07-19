@@ -121,6 +121,18 @@ export interface Compare {
   value2?: string | null;
 }
 
+export interface SpiderStatus {
+  running: boolean;
+  count: number;
+}
+
+export interface SpiderResult {
+  expr: string;
+  depth: number;
+  address: number | null;
+  value: string | null;
+}
+
 export interface FieldInput {
   name: string;
   offset: number;
@@ -242,6 +254,25 @@ export const api = {
     invoke<ScanRow[]>("scan_page", { offset, limit }),
   scanAddToTable: (index: number, description: string) =>
     invoke<void>("scan_add_to_table", { index, description }),
+
+  // spider
+  spiderSearch: (
+    address: number,
+    structSize: number,
+    alignment: number,
+    depth: number,
+    kind: string,
+    value: string,
+  ) =>
+    invoke<void>("spider_search", { address, structSize, alignment, depth, kind, value }),
+  spiderStatus: () => invoke<SpiderStatus>("spider_status"),
+  spiderPage: (offset: number, limit: number) =>
+    invoke<SpiderResult[]>("spider_page", { offset, limit }),
+  spiderFilter: (filter: string, value: string) =>
+    invoke<number>("spider_filter", { filter, value }),
+  spiderCancel: () => invoke<void>("spider_cancel"),
+  spiderAddToTable: (index: number, description: string) =>
+    invoke<void>("spider_add_to_table", { index, description }),
 
   // disassembly / memory map
   memoryMap: () => invoke<MapRegion[]>("memory_map"),

@@ -1,6 +1,7 @@
 //! The canonical backend state — the Tauri equivalent of the egui GUI's
 //! `GlobalState`, held behind a `Mutex` via Tauri's managed state.
 
+use crate::spider::SpiderHandle;
 use nemclass_sdk::project::Manifest;
 use nemclass_sdk::scan::ScanResults;
 use nemclass_sdk::schema::TypeDef;
@@ -53,6 +54,8 @@ pub struct AppState {
     pub freezer: Option<Freezer>,
     /// The latest value-scan result set (for `next_scan`).
     pub scan_results: Option<ScanResults>,
+    /// The current structure-spider search, if any.
+    pub spider: Option<SpiderHandle>,
     /// Persisted configuration.
     pub config: Config,
 
@@ -72,6 +75,7 @@ impl AppState {
             cheat_table: CheatTable::new(),
             freezer: None,
             scan_results: None,
+            spider: None,
             config: Config::default(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -95,6 +99,7 @@ impl AppState {
         self.freezer = None;
         self.target = None;
         self.scan_results = None;
+        self.spider = None;
     }
 
     /// Rebuilds the freezer's pinned set from the cheat table's frozen entries.

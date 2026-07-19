@@ -8,6 +8,7 @@ import { GeneratorPanel } from "./GeneratorPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { Placeholder } from "./Placeholder";
 import { ScannerPanel } from "./ScannerPanel";
+import { SpiderPanel } from "./SpiderPanel";
 
 export const panelComponents = {
   classList: () => <ClassListPanel />,
@@ -15,7 +16,7 @@ export const panelComponents = {
   console: () => <ConsolePanel />,
   scanner: () => <ScannerPanel />,
   cheatTable: () => <CheatTablePanel />,
-  spider: () => <Placeholder title="Spider" />,
+  spider: () => <SpiderPanel />,
   generator: () => <GeneratorPanel />,
   disasm: () => <DisasmPanel />,
   debugger: () => <Placeholder title="Debugger" />,

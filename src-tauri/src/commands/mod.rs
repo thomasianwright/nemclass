@@ -8,4 +8,5 @@ pub mod inspect;
 pub mod process;
 pub mod project;
 pub mod scan;
+pub mod spider;
 pub mod table;

@@ -8,6 +8,7 @@
 mod commands;
 mod dto;
 mod format;
+mod spider;
 mod state;
 
 use parking_lot::Mutex;
@@ -58,6 +59,13 @@ pub fn run() {
             commands::scan::scan_reset,
             commands::scan::scan_page,
             commands::scan::scan_add_to_table,
+            // spider
+            commands::spider::spider_search,
+            commands::spider::spider_status,
+            commands::spider::spider_page,
+            commands::spider::spider_filter,
+            commands::spider::spider_cancel,
+            commands::spider::spider_add_to_table,
             // cheat table
             commands::table::table_list,
             commands::table::table_add,
