@@ -9,6 +9,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/nemclass_sdk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/nemclass_sdk/examples" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/nemclass_memory/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/nemclass_scripting/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/nemclass_sdk/target" />
