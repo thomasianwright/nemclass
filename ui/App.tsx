@@ -22,25 +22,38 @@ import { useStore } from "./store";
 
 type PickerMode = "open" | "new" | "save";
 
+// The always-present panels. Everything else is an on-demand tool (see lib/tools).
+const CORE_PANELS = [
+  { id: "classList", component: "classList", title: "Classes" },
+  { id: "inspector", component: "inspector", title: "Inspector", ref: "classList", dir: "right" },
+  { id: "console", component: "console", title: "Console", ref: "inspector", dir: "below" },
+] as const;
+
+function addCorePanel(dv: DockviewApi, p: (typeof CORE_PANELS)[number]) {
+  dv.addPanel({
+    id: p.id,
+    component: p.component,
+    title: p.title,
+    position:
+      "ref" in p && dv.getPanel(p.ref) ? { referencePanel: p.ref, direction: p.dir } : undefined,
+  });
+}
+
 function buildDefaultLayout(dv: DockviewApi) {
-  const classList = dv.addPanel({ id: "classList", component: "classList", title: "Classes" });
-  dv.addPanel({
-    id: "inspector",
-    component: "inspector",
-    title: "Inspector",
-    position: { referencePanel: "classList", direction: "right" },
-  });
-  dv.addPanel({
-    id: "console",
-    component: "console",
-    title: "Console",
-    position: { referencePanel: "inspector", direction: "below" },
-  });
+  CORE_PANELS.forEach((p) => addCorePanel(dv, p));
   try {
-    classList.group.api.setSize({ width: 240 });
+    dv.getPanel("classList")?.group.api.setSize({ width: 240 });
   } catch {
     /* older layout api */
   }
+}
+
+// Re-add any core panel missing from a restored layout. Older/edited layouts could
+// be persisted without the Inspector, which otherwise left it permanently hidden.
+function ensureCorePanels(dv: DockviewApi) {
+  CORE_PANELS.forEach((p) => {
+    if (!dv.getPanel(p.id)) addCorePanel(dv, p);
+  });
 }
 
 export default function App() {
@@ -89,6 +102,7 @@ export default function App() {
       }
     }
     if (!restored) buildDefaultLayout(event.api);
+    else ensureCorePanels(event.api);
 
     event.api.onDidLayoutChange(() => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -118,6 +132,14 @@ export default function App() {
       title: tool?.title ?? id,
       position: ref ? { referencePanel: ref, direction: tool!.dir } : undefined,
     });
+  }, []);
+
+  // Wipe the (possibly broken) layout and rebuild the default one.
+  const resetLayout = useCallback(() => {
+    const dv = dockApi.current;
+    if (!dv) return;
+    dv.clear();
+    buildDefaultLayout(dv);
   }, []);
 
   // Global keyboard shortcuts.
@@ -163,6 +185,7 @@ export default function App() {
         onSettings={() => setSettingsOpen(true)}
         onProject={onProject}
         openTool={openTool}
+        onResetLayout={resetLayout}
       />
       <div className="min-h-0 flex-1">
         {config !== undefined && (

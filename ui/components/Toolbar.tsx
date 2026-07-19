@@ -1,6 +1,7 @@
 import {
   FilePlus2,
   FolderOpen,
+  LayoutTemplate,
   Plug,
   Redo2,
   Save,
@@ -17,11 +18,13 @@ export function Toolbar({
   onSettings,
   onProject,
   openTool,
+  onResetLayout,
 }: {
   onAttach: () => void;
   onSettings: () => void;
   onProject: (mode: "open" | "new" | "save") => void;
   openTool: (id: string) => void;
+  onResetLayout: () => void;
 }) {
   const project = useStore((s) => s.project);
   const attached = useStore((s) => s.attached);
@@ -116,6 +119,13 @@ export function Toolbar({
 
       <Divider />
 
+      <button
+        className="btn btn-ghost btn-icon"
+        title="Reset panel layout (restores the Inspector/Console)"
+        onClick={onResetLayout}
+      >
+        <LayoutTemplate size={15} />
+      </button>
       <button className="btn btn-ghost btn-icon" title="Project settings" onClick={onSettings}>
         <Settings size={15} />
       </button>
