@@ -198,6 +198,10 @@ export interface FieldRow {
   kindMeta: string | null;
   pointee: number | null;
   expandable: boolean;
+  /** Raw bytes behind an Unk field, for the hex view (null for typed fields). */
+  raw: number[] | null;
+  /** Live-inferred "better type" hint for an Unk field (e.g. "Vec3f"). */
+  hint: string | null;
   children: FieldRow[];
 }
 
@@ -241,6 +245,16 @@ export const api = {
     invoke<void>("delete_field", { class: cls, index }),
   insertFields: (cls: string, atIndex: number, fields: FieldInput[]) =>
     invoke<void>("insert_fields", { class: cls, atIndex, fields }),
+  // ReClass-style schema editing (operates on the packed byte layout).
+  addBytes: (cls: string, n: number) => invoke<void>("add_bytes", { class: cls, n }),
+  insertBytes: (cls: string, index: number, n: number) =>
+    invoke<void>("insert_bytes", { class: cls, index, n }),
+  removeFields: (cls: string, index: number, n: number) =>
+    invoke<void>("remove_fields", { class: cls, index, n }),
+  retypeField: (cls: string, index: number, kind: string, metadata?: string | null) =>
+    invoke<void>("retype_field", { class: cls, index, kind, metadata: metadata ?? null }),
+  guessType: (cls: string, index: number, address: number) =>
+    invoke<string | null>("guess_type", { class: cls, index, address }),
   undo: () => invoke<boolean>("undo"),
   redo: () => invoke<boolean>("redo"),
   fieldKinds: () => invoke<KindOption[]>("field_kinds"),
