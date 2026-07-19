@@ -50,6 +50,8 @@ pub fn run() {
             commands::classes::set_field_offset,
             commands::classes::delete_field,
             commands::classes::insert_fields,
+            commands::classes::get_class_address,
+            commands::classes::set_class_address,
             commands::classes::undo,
             commands::classes::redo,
             commands::classes::field_kinds,

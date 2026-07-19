@@ -246,8 +246,12 @@ export const api = {
   fieldKinds: () => invoke<KindOption[]>("field_kinds"),
 
   // inspector / memory
-  inspectClass: (cls: string, base: number, expanded: number[][]) =>
-    invoke<InspectResult>("inspect_class", { class: cls, base, expanded }),
+  inspectClass: (cls: string, expanded: number[][]) =>
+    invoke<InspectResult>("inspect_class", { class: cls, expanded }),
+  getClassAddress: (name: string) =>
+    invoke<number>("get_class_address", { name }),
+  setClassAddress: (name: string, addr: number) =>
+    invoke<void>("set_class_address", { name, addr }),
   writeValue: (address: number, kind: string, text: string) =>
     invoke<void>("write_value", { address, kind, text }),
   readBytes: (address: number, len: number) =>

@@ -87,18 +87,20 @@ fn walk(
     rows
 }
 
-/// Walks `class` at `base`, reading live values in one pass; recurses into any
-/// expanded pointer whose path is listed in `expanded`.
+/// Walks `class` at its stored base address, reading live values in one pass;
+/// recurses into any expanded pointer whose path is listed in `expanded`. The
+/// base comes from the shared `class_addresses` map (set by the Inspector's base
+/// field or by `nem.set_class_address` in a Lua script), so both stay in sync.
 #[tauri::command]
 pub fn inspect_class(
     state: State<'_, Mutex<AppState>>,
     class: String,
-    base: u64,
     expanded: Vec<Vec<usize>>,
 ) -> Result<InspectResult, String> {
-    let (classes, target, ptr) = {
+    let (classes, target, ptr, base) = {
         let st = state.lock();
-        (st.classes.clone(), st.target.clone(), st.ptr_size())
+        let base = st.class_addresses.get(&class).copied().unwrap_or(0) as u64;
+        (st.classes.clone(), st.target.clone(), st.ptr_size(), base)
     };
     if !classes.iter().any(|c| c.name == class) {
         return Err(format!("no class named `{class}`"));

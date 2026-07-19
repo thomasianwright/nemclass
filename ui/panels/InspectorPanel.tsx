@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, hexAddr, parseAddr, type InspectResult } from "../lib/api";
 import { useStore } from "../store";
 import { InspectorRow } from "./inspector/InspectorRow";
@@ -18,14 +18,17 @@ export function InspectorPanel() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [newField, setNewField] = useState("");
   const [newKind, setNewKind] = useState("I32");
+  // True while the user edits the base field, so live syncs don't clobber typing.
+  const editingBase = useRef(false);
 
-  const base = parseAddr(baseText) ?? 0;
+  const base = result?.baseAddr ?? 0;
   const expandedArr = useMemo(
     () => [...expanded].map((k) => k.split(".").filter(Boolean).map(Number)),
     [expanded],
   );
 
-  // Live polling of structure + values.
+  // Live polling of structure + values. The base comes from the backend
+  // (class_addresses), so a script's nem.set_class_address shows up here too.
   useEffect(() => {
     if (!selected) {
       setResult(null);
@@ -33,8 +36,11 @@ export function InspectorPanel() {
     }
     let alive = true;
     const tick = async () => {
-      const r = await api.inspectClass(selected, base, expandedArr).catch(() => null);
-      if (alive && r) setResult(r);
+      const r = await api.inspectClass(selected, expandedArr).catch(() => null);
+      if (alive && r) {
+        setResult(r);
+        if (!editingBase.current) setBaseText(hexAddr(r.baseAddr));
+      }
     };
     tick();
     const id = setInterval(tick, POLL_MS);
@@ -42,7 +48,13 @@ export function InspectorPanel() {
       alive = false;
       clearInterval(id);
     };
-  }, [selected, base, expandedArr, classRev]);
+  }, [selected, expandedArr, classRev]);
+
+  const commitBase = async () => {
+    editingBase.current = false;
+    const v = parseAddr(baseText);
+    if (v !== null && selected) await api.setClassAddress(selected, v);
+  };
 
   const toggle = (key: string) =>
     setExpanded((prev) => {
@@ -88,7 +100,10 @@ export function InspectorPanel() {
             className="input mono w-44"
             value={baseText}
             spellCheck={false}
+            onFocus={() => (editingBase.current = true)}
             onChange={(e) => setBaseText(e.target.value)}
+            onBlur={commitBase}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         </label>
       </div>

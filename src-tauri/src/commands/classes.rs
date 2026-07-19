@@ -222,6 +222,24 @@ pub fn insert_fields(
     Ok(())
 }
 
+/// The stored base address of a class (0 if unset). This is the single source
+/// of truth for a class's base — the Inspector and Lua scripts share it.
+#[tauri::command]
+pub fn get_class_address(state: State<'_, Mutex<AppState>>, name: String) -> Result<u64, String> {
+    Ok(state.lock().class_addresses.get(&name).copied().unwrap_or(0) as u64)
+}
+
+/// Sets a class's base address (e.g. from the Inspector's base field).
+#[tauri::command]
+pub fn set_class_address(
+    state: State<'_, Mutex<AppState>>,
+    name: String,
+    addr: u64,
+) -> Result<(), String> {
+    state.lock().class_addresses.insert(name, addr as usize);
+    Ok(())
+}
+
 /// Undo the last class-model change; returns whether anything changed.
 #[tauri::command]
 pub fn undo(state: State<'_, Mutex<AppState>>) -> Result<bool, String> {
