@@ -2,7 +2,7 @@ use crate::{
     class::ClassList, config::YClassConfig, context::Selection, hotkeys::HotkeyManager,
     process::Process, project::ProjectData,
 };
-use nemclass_sdk::{Manifest, Target};
+use nemclass_sdk::{CheatTable, Manifest, Target};
 use egui_notify::Toasts;
 use parking_lot::RwLock;
 use std::{
@@ -24,6 +24,9 @@ pub struct GlobalState {
     pub manifest: Manifest,
     pub selection: Option<Selection>,
     pub process: Arc<RwLock<Option<Process>>>,
+    /// The project's cheat table (address + type + freeze entries). Shared so the
+    /// scanner can add hits and the cheat-table window can edit/freeze them.
+    pub cheat_table: CheatTable,
     pub hotkeys: HotkeyManager,
     pub class_list: ClassList,
     pub config: YClassConfig,
@@ -62,6 +65,7 @@ impl Default for GlobalState {
             manifest: Manifest::new("untitled"),
             toasts: Toasts::default(),
             process: Arc::default(),
+            cheat_table: CheatTable::new(),
             selection: None,
             dummy: true,
             config,
@@ -129,6 +133,7 @@ impl GlobalState {
                 let _ = nemclass_scripting::write_editor_support(&dir);
                 self.class_list = ClassList::default();
                 self.manifest = loaded.manifest;
+                self.cheat_table = CheatTable::new();
                 self.last_opened_project = Some(dir.clone());
                 self.dummy = false;
                 self.remember_recent(&dir);
@@ -168,6 +173,8 @@ impl GlobalState {
         let project = ProjectData::store(self.class_list.classes()).into_project();
         match nemclass_sdk::project::save_dir(&dir, &self.manifest, &project) {
             Ok(()) => {
+                // save_dir created tables/; persist the cheat table alongside classes.
+                let _ = self.cheat_table.save(&Self::cheat_table_path(&dir));
                 self.last_opened_project = Some(dir);
                 self.dummy = false;
             }
@@ -205,6 +212,12 @@ impl GlobalState {
             Ok(loaded) => {
                 self.class_list = ProjectData::from_project(loaded.classes).load();
                 self.manifest = loaded.manifest;
+                let table_path = Self::cheat_table_path(dir);
+                self.cheat_table = if table_path.is_file() {
+                    CheatTable::load(&table_path).unwrap_or_default()
+                } else {
+                    CheatTable::new()
+                };
                 self.last_opened_project = Some(dir.to_path_buf());
                 self.dummy = false;
                 self.remember_recent(dir);
@@ -225,6 +238,11 @@ impl GlobalState {
         self.last_opened_project
             .as_ref()
             .map(|dir| dir.join(nemclass_sdk::project::SCRIPTS_DIR))
+    }
+
+    /// The cheat-table file (`tables/table.ron`) inside `dir`.
+    fn cheat_table_path(dir: &Path) -> PathBuf {
+        dir.join(nemclass_sdk::project::TABLES_DIR).join("table.ron")
     }
 
     fn remember_recent(&mut self, dir: &Path) {

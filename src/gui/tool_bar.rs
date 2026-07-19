@@ -1,4 +1,7 @@
-use super::{GeneratorWindow, ProcessAttachWindow, ProjectSettings, ScriptConsole, SpiderWindow};
+use super::{
+    CheatTableWindow, GeneratorWindow, ProcessAttachWindow, ProjectSettings, ScannerWindow,
+    ScriptConsole, SpiderWindow,
+};
 use crate::{
     field::{FieldKind, FloatWidth},
     state::{GlobalState, StateRef},
@@ -39,6 +42,8 @@ pub struct ToolBarPanel {
     ps_attach_window: ProcessAttachWindow,
     generator_window: GeneratorWindow,
     spider_window: SpiderWindow,
+    scanner_window: ScannerWindow,
+    cheat_table_window: CheatTableWindow,
     script_console: ScriptConsole,
     project_settings: ProjectSettings,
     state: StateRef,
@@ -51,6 +56,8 @@ impl ToolBarPanel {
             ps_attach_window: ProcessAttachWindow::new(state),
             generator_window: GeneratorWindow::new(state),
             spider_window: SpiderWindow::new(state),
+            scanner_window: ScannerWindow::new(state),
+            cheat_table_window: CheatTableWindow::new(state),
             script_console: ScriptConsole::new(state),
             project_settings: ProjectSettings::new(state),
         }
@@ -67,6 +74,9 @@ impl ToolBarPanel {
         self.generator_window.show(ctx);
         self.script_console.show(ctx);
         self.project_settings.show(ctx);
+        self.scanner_window.show(ctx);
+        // Shown every frame so frozen entries keep being written even when closed.
+        self.cheat_table_window.show(ctx);
         if let Err(e) = self.spider_window.show(ctx) {
             self.state.borrow_mut().toasts.error(e.to_string());
         }
@@ -98,6 +108,14 @@ impl ToolBarPanel {
 
                     if ui.button("Spider").clicked() {
                         self.spider_window.toggle();
+                    }
+
+                    if ui.button("Scanner").clicked() {
+                        self.scanner_window.toggle();
+                    }
+
+                    if ui.button("Cheat table").clicked() {
+                        self.cheat_table_window.toggle();
                     }
 
                     if ui.button("Script").clicked() {
