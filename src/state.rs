@@ -30,6 +30,12 @@ pub struct GlobalState {
     /// One-shot request to open the debugger window and "find what writes" this
     /// address. Set by the cheat-table window, consumed by the debugger window.
     pub debug_request: Option<usize>,
+    /// Desired software breakpoint addresses. The debugger window reconciles
+    /// these against its live session; the disassembly window toggles them.
+    pub breakpoints: Vec<usize>,
+    /// Instruction pointer of the debugger's current stop (`None` while running
+    /// or detached). Lets the disassembly window highlight / follow it.
+    pub debug_rip: Option<usize>,
     pub hotkeys: HotkeyManager,
     pub class_list: ClassList,
     pub config: YClassConfig,
@@ -70,6 +76,8 @@ impl Default for GlobalState {
             process: Arc::default(),
             cheat_table: CheatTable::new(),
             debug_request: None,
+            breakpoints: Vec::new(),
+            debug_rip: None,
             selection: None,
             dummy: true,
             config,

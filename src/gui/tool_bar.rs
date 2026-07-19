@@ -1,6 +1,6 @@
 use super::{
-    CheatTableWindow, DebuggerWindow, GeneratorWindow, ProcessAttachWindow, ProjectSettings,
-    ScannerWindow, ScriptConsole, SpiderWindow,
+    CheatTableWindow, DebuggerWindow, DisasmWindow, GeneratorWindow, ProcessAttachWindow,
+    ProjectSettings, ScannerWindow, ScriptConsole, SpiderWindow,
 };
 use crate::{
     field::{FieldKind, FloatWidth},
@@ -45,6 +45,7 @@ pub struct ToolBarPanel {
     scanner_window: ScannerWindow,
     cheat_table_window: CheatTableWindow,
     debugger_window: DebuggerWindow,
+    disasm_window: DisasmWindow,
     script_console: ScriptConsole,
     project_settings: ProjectSettings,
     state: StateRef,
@@ -60,6 +61,7 @@ impl ToolBarPanel {
             scanner_window: ScannerWindow::new(state),
             cheat_table_window: CheatTableWindow::new(state),
             debugger_window: DebuggerWindow::new(state),
+            disasm_window: DisasmWindow::new(state),
             script_console: ScriptConsole::new(state),
             project_settings: ProjectSettings::new(state),
         }
@@ -81,6 +83,7 @@ impl ToolBarPanel {
         self.cheat_table_window.show(ctx);
         // Shown every frame so an active trace/debug session keeps polling.
         self.debugger_window.show(ctx);
+        self.disasm_window.show(ctx);
         if let Err(e) = self.spider_window.show(ctx) {
             self.state.borrow_mut().toasts.error(e.to_string());
         }
@@ -124,6 +127,10 @@ impl ToolBarPanel {
 
                     if ui.button("Debugger").clicked() {
                         self.debugger_window.toggle();
+                    }
+
+                    if ui.button("Disasm").clicked() {
+                        self.disasm_window.toggle();
                     }
 
                     if ui.button("Script").clicked() {

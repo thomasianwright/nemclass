@@ -21,5 +21,7 @@ mod cheat_table;
 pub use cheat_table::*;
 mod debugger;
 pub use debugger::*;
+mod disasm;
+pub use disasm::*;
 mod utils;
 pub use utils::*;
