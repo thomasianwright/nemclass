@@ -49,5 +49,13 @@ pub use table::{CheatEntry, CheatTable, Freezer};
 pub mod access;
 pub use access::{find_what_accesses, AccessBackend, AccessRecord, AccessTracer};
 
+#[cfg(feature = "disasm")]
+pub mod disasm;
+#[cfg(feature = "disasm")]
+pub use disasm::{
+    call_targets, disassemble, find_functions, find_strings, memory_map, FlowKind, Insn, MapRegion,
+    RegionKind, StringHit,
+};
+
 /// Re-export of the low-level memory crate for advanced callers.
 pub use nemclass_memory;

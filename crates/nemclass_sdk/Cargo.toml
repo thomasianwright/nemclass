@@ -22,6 +22,12 @@ nix = { version = "0.29", features = [
 ], optional = true }
 frida = { version = "0.17", features = ["auto-download"], optional = true }
 serde_json = { version = "1", optional = true }
+iced-x86 = { version = "1.21", default-features = false, features = [
+    "std",
+    "decoder",
+    "nasm",
+    "instr_info",
+], optional = true }
 
 [features]
 # The native ptrace debugger + hardware-watchpoint access tracer. On by default:
@@ -38,8 +44,10 @@ libiht = []
 # Intel PT "find what accesses" tracer via perf_event_open. Pure `libc`; needs a
 # PT-capable CPU and perf permissions at runtime.
 intel-pt = []
+# x86/x64 disassembly + memory-map / string / call / function analysis (iced-x86).
+disasm = ["dep:iced-x86"]
 # Everything.
-full = ["debug-ptrace", "frida", "libiht", "intel-pt"]
+full = ["debug-ptrace", "frida", "libiht", "intel-pt", "disasm"]
 
 [[example]]
 name = "scan_demo"
