@@ -14,7 +14,11 @@
 //!   the Intel PT PMU; needs PT-capable hardware and perf permission.
 
 use crate::debug::{Registers, WatchKind, WatchSize};
-use crate::error::{Result, SdkError};
+use crate::error::Result;
+// `SdkError` is only referenced by the `#[cfg(not(...))]` "not compiled in" arms
+// of `find_what_accesses`, so it is unused when every backend feature is enabled.
+#[allow(unused_imports)]
+use crate::error::SdkError;
 
 #[cfg(all(target_os = "linux", feature = "debug-ptrace"))]
 pub mod hw;

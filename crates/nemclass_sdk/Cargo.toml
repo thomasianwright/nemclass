@@ -20,7 +20,8 @@ nix = { version = "0.29", features = [
     "uio",
     "personality",
 ], optional = true }
-frida = { version = "0.17", optional = true }
+frida = { version = "0.17", features = ["auto-download"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 # The native ptrace debugger + hardware-watchpoint access tracer. On by default:
@@ -30,7 +31,7 @@ default = ["debug-ptrace"]
 debug-ptrace = ["dep:nix"]
 # Frida-backed debugger/instrumentation backend. Off by default: enabling it pulls
 # the `frida` crate, whose build downloads the frida-gum devkit (needs network).
-frida = ["dep:frida"]
+frida = ["dep:frida", "dep:serde_json"]
 # LibIHT (LBR) "find what accesses" tracer. Pure `libc` FFI to the kernel module;
 # compiles anywhere, but needs the libiht kernel module loaded at runtime.
 libiht = []

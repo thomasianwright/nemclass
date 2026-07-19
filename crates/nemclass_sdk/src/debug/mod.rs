@@ -11,7 +11,11 @@
 //! [`attach`]. Everything above this trait (the value scanner, cheat tables, the
 //! "find what accesses" tracers) is backend-agnostic.
 
-use crate::error::{Result, SdkError};
+use crate::error::Result;
+// `SdkError` is only referenced by the `#[cfg(not(...))]` "not compiled in" arms
+// of `attach`, so it is unused when every backend feature is enabled.
+#[allow(unused_imports)]
+use crate::error::SdkError;
 use std::time::Duration;
 
 #[cfg(all(target_os = "linux", feature = "debug-ptrace"))]
