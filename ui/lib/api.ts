@@ -68,6 +68,18 @@ export interface Config {
   layout: string | null;
 }
 
+export interface DirEntry {
+  name: string;
+  path: string;
+  isProject: boolean;
+}
+
+export interface DirListing {
+  path: string;
+  parent: string | null;
+  dirs: DirEntry[];
+}
+
 export interface CheatEntry {
   index: number;
   description: string;
@@ -258,6 +270,10 @@ export const api = {
   getConfig: () => invoke<Config>("get_config"),
   setConfig: (config: Config) => invoke<void>("set_config", { config }),
   setLayout: (layout: string | null) => invoke<void>("set_layout", { layout }),
+
+  // filesystem (in-app directory picker)
+  listDir: (path: string | null) => invoke<DirListing>("list_dir", { path }),
+  homeDir: () => invoke<string>("home_dir"),
 
   // cheat table
   tableList: () => invoke<CheatEntry[]>("table_list"),

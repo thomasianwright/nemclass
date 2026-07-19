@@ -5,6 +5,7 @@ pub mod classes;
 pub mod config;
 pub mod debugger;
 pub mod disasm;
+pub mod fs;
 pub mod generator;
 pub mod inspect;
 pub mod process;

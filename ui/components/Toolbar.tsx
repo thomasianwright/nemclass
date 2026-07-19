@@ -9,17 +9,18 @@ import {
   Unplug,
 } from "lucide-react";
 import { api } from "../lib/api";
-import { doProjectNew, doProjectOpen, doProjectSave } from "../lib/project";
 import { TOOLS } from "../lib/tools";
 import { useStore } from "../store";
 
 export function Toolbar({
   onAttach,
   onSettings,
+  onProject,
   openTool,
 }: {
   onAttach: () => void;
   onSettings: () => void;
+  onProject: (mode: "open" | "new" | "save") => void;
   openTool: (id: string) => void;
 }) {
   const project = useStore((s) => s.project);
@@ -53,13 +54,17 @@ export function Toolbar({
 
       <Divider />
 
-      <button className="btn btn-ghost" title="New project" onClick={doProjectNew}>
+      <button className="btn btn-ghost" title="New project" onClick={() => onProject("new")}>
         <FilePlus2 size={14} /> New
       </button>
-      <button className="btn btn-ghost" title="Open project" onClick={doProjectOpen}>
+      <button className="btn btn-ghost" title="Open project" onClick={() => onProject("open")}>
         <FolderOpen size={14} /> Open
       </button>
-      <button className="btn btn-ghost" title="Save project (Ctrl+S)" onClick={doProjectSave}>
+      <button
+        className="btn btn-ghost"
+        title="Save project (Ctrl+S)"
+        onClick={() => onProject("save")}
+      >
         <Save size={14} /> Save
         {project?.dirty && <span className="ml-0.5 text-warn">●</span>}
       </button>

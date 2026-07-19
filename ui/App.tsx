@@ -8,11 +8,19 @@ import { Toolbar } from "./components/Toolbar";
 import { Toasts } from "./components/Toasts";
 import { ProcessAttachModal } from "./components/ProcessAttachModal";
 import { ProjectSettingsModal } from "./components/ProjectSettingsModal";
+import { DirectoryPicker } from "./components/DirectoryPicker";
 import { panelComponents } from "./panels/registry";
 import { TOOLS } from "./lib/tools";
 import { api, type Config } from "./lib/api";
-import { doProjectSave } from "./lib/project";
+import {
+  applyProjectNew,
+  applyProjectOpen,
+  applyProjectSaveAs,
+  saveExisting,
+} from "./lib/project";
 import { useStore } from "./store";
+
+type PickerMode = "open" | "new" | "save";
 
 function buildDefaultLayout(dv: DockviewApi) {
   const classList = dv.addPanel({ id: "classList", component: "classList", title: "Classes" });
@@ -40,10 +48,29 @@ export default function App() {
   const saveTimer = useRef<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [picker, setPicker] = useState<PickerMode | null>(null);
   const [config, setConfig] = useState<Config | null | undefined>(undefined);
 
   const init = useStore((s) => s.init);
   const mutated = useStore((s) => s.mutated);
+
+  const onProject = useCallback(async (mode: PickerMode) => {
+    // Save writes to the existing dir directly; only fall back to the picker when
+    // there is no project directory yet.
+    if (mode === "save" && (await saveExisting())) return;
+    setPicker(mode);
+  }, []);
+
+  const handlePick = useCallback(
+    async (dir: string, name?: string) => {
+      const mode = picker;
+      setPicker(null);
+      if (mode === "new") await applyProjectNew(dir, name);
+      else if (mode === "open") await applyProjectOpen(dir);
+      else if (mode === "save") await applyProjectSaveAs(dir);
+    },
+    [picker],
+  );
 
   useEffect(() => {
     init();
@@ -109,7 +136,7 @@ export default function App() {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        doProjectSave();
+        onProject("save");
       } else if (e.altKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setAttachOpen(true);
@@ -127,13 +154,14 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mutated]);
+  }, [mutated, onProject]);
 
   return (
     <div className="flex h-full flex-col bg-bg">
       <Toolbar
         onAttach={() => setAttachOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onProject={onProject}
         openTool={openTool}
       />
       <div className="min-h-0 flex-1">
@@ -148,6 +176,13 @@ export default function App() {
       {attachOpen && <ProcessAttachModal onClose={() => setAttachOpen(false)} />}
       {settingsOpen && (
         <ProjectSettingsModal onClose={() => setSettingsOpen(false)} />
+      )}
+      {picker && (
+        <DirectoryPicker
+          mode={picker}
+          onClose={() => setPicker(null)}
+          onPick={handlePick}
+        />
       )}
       <Toasts />
     </div>

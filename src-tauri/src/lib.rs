@@ -121,6 +121,9 @@ pub fn run() {
             commands::config::get_config,
             commands::config::set_config,
             commands::config::set_layout,
+            // filesystem (in-app directory picker)
+            commands::fs::list_dir,
+            commands::fs::home_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
