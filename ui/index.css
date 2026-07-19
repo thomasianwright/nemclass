@@ -63,6 +63,28 @@ body {
   background-clip: content-box;
 }
 
+/* Native <select> renders as a white GTK widget on WebKitGTK (Tauri/Linux)
+   and ignores background-color unless the appearance is reset. Do it here so
+   the dark theme (and the option popup) applies everywhere. */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a94a6' stroke-width='2'><path d='M4 6l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  background-size: 0.7rem;
+  padding-right: 1.3rem;
+}
+/* Re-assert caret room at higher specificity so it beats the px-2 utility. */
+select.input {
+  padding-right: 1.3rem;
+}
+select option,
+select optgroup {
+  background-color: var(--color-panel-2);
+  color: var(--color-text);
+}
+
 /* ---- Reusable component classes --------------------------------------- */
 @layer components {
   .btn {
