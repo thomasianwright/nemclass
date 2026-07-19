@@ -70,6 +70,21 @@ fn walk(
             _ => {}
         }
 
+        // For raw `Unk*` padding, hand the frontend the bytes (hex view) and a live
+        // "guess type" hint — mirrors the egui HexField's inline bytes + hint label.
+        let (raw_out, hint) = if matches!(
+            f.kind,
+            FieldKind::Unk8 | FieldKind::Unk16 | FieldKind::Unk32 | FieldKind::Unk64
+        ) {
+            let hint = target.and_then(|tg| {
+                let window = nemclass_sdk::infer::read_window(tg, addr as usize);
+                nemclass_sdk::infer::infer_float_hint(&window, tg).map(|k| k.to_kind_string())
+            });
+            (raw.clone(), hint)
+        } else {
+            (None, None)
+        };
+
         rows.push(FieldRow {
             field_index: i,
             offset: f.offset,
@@ -81,6 +96,8 @@ fn walk(
             kind_meta: f.metadata.clone(),
             pointee,
             expandable,
+            raw: raw_out,
+            hint,
             children,
         });
     }

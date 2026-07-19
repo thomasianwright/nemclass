@@ -123,6 +123,13 @@ pub struct FieldRow {
     pub pointee: Option<u64>,
     /// True for a pointer whose target class is known (so it can be expanded).
     pub expandable: bool,
+    /// Raw little-endian bytes behind this field, for the ReClass hex view.
+    /// Populated for `Unk*` (padding) kinds; `None` otherwise or when unreadable.
+    pub raw: Option<Vec<u8>>,
+    /// A live-inferred "better type" hint (e.g. `"Vec3f"`) for an `Unk*` field —
+    /// shown as a clickable chip that applies the guess. `None` when nothing beats
+    /// raw bytes.
+    pub hint: Option<String>,
     /// Children of an expanded pointer.
     pub children: Vec<FieldRow>,
 }

@@ -23,6 +23,94 @@ fn find<'a>(st: &'a mut AppState, class: &str) -> Result<&'a mut TypeDef, String
     Ok(&mut st.classes[idx])
 }
 
+/// Greedily splits `n` bytes into unnamed Unk padding fields (Unk64/32/16/8, largest
+/// first) — the ReClass "raw bytes" that Add/Insert produce. Offsets are placeholders;
+/// call [`recompact`] afterwards.
+fn padding_fields(mut n: usize) -> Vec<FieldDef> {
+    let mut out = Vec::new();
+    for (kind, sz) in [
+        (FieldKind::Unk64, 8usize),
+        (FieldKind::Unk32, 4),
+        (FieldKind::Unk16, 2),
+        (FieldKind::Unk8, 1),
+    ] {
+        while n >= sz {
+            out.push(FieldDef {
+                name: String::new(),
+                offset: 0,
+                kind,
+                metadata: None,
+            });
+            n -= sz;
+        }
+    }
+    out
+}
+
+/// Rewrites every field offset so the layout is contiguous from 0. The egui inspector
+/// treats a class as a packed byte sequence with no gaps; every structural edit
+/// (add/insert/remove/retype) restores that invariant here.
+fn recompact(t: &mut TypeDef, ptr: usize) {
+    let mut off = 0;
+    for f in &mut t.fields {
+        f.offset = off;
+        off += f.kind.size_with_ptr(ptr);
+    }
+}
+
+/// Converts field `index` to `new` the way egui's `change_field_kind` does: shrinking
+/// pads the freed tail with Unk bytes; growing "steals" bytes from the following fields
+/// (padding any remainder), erroring if there isn't enough room. Preserves the field's
+/// name and recompacts offsets. Caller must have snapshotted.
+fn retype_impl(
+    t: &mut TypeDef,
+    index: usize,
+    new: FieldKind,
+    metadata: Option<String>,
+    ptr: usize,
+) -> Result<(), String> {
+    let old = t.fields.get(index).ok_or("field index out of range")?;
+    let old_size = old.kind.size_with_ptr(ptr);
+    let new_size = new.size_with_ptr(ptr);
+    let new_field = FieldDef {
+        name: old.name.clone(),
+        offset: 0,
+        kind: new,
+        metadata,
+    };
+
+    if old_size >= new_size {
+        // Shrink (or same size): replace in place and pad the bytes we freed.
+        t.fields[index] = new_field;
+        for (i, f) in padding_fields(old_size - new_size).into_iter().enumerate() {
+            t.fields.insert(index + 1 + i, f);
+        }
+    } else {
+        // Grow: consume following fields until we have enough bytes, then pad the rest.
+        let (mut steal_size, mut steal_len) = (0usize, 0usize);
+        while steal_size < new_size {
+            match t.fields.get(index + steal_len) {
+                Some(f) => {
+                    steal_size += f.kind.size_with_ptr(ptr);
+                    steal_len += 1;
+                }
+                None => break,
+            }
+        }
+        if steal_size < new_size {
+            return Err("Not enough space for a new field".into());
+        }
+        t.fields.drain(index..index + steal_len);
+        t.fields.insert(index, new_field);
+        for (i, f) in padding_fields(steal_size - new_size).into_iter().enumerate() {
+            t.fields.insert(index + 1 + i, f);
+        }
+    }
+
+    recompact(t, ptr);
+    Ok(())
+}
+
 /// Lists every class as a summary.
 #[tauri::command]
 pub fn list_classes(state: State<'_, Mutex<AppState>>) -> Result<Vec<ClassSummaryDto>, String> {
@@ -220,6 +308,112 @@ pub fn insert_fields(
         t.fields.insert(at + i, f);
     }
     Ok(())
+}
+
+/// Appends `n` bytes of Unk padding to the end of a class (ReClass "Add N bytes").
+#[tauri::command]
+pub fn add_bytes(state: State<'_, Mutex<AppState>>, class: String, n: usize) -> Result<(), String> {
+    if n == 0 {
+        return Ok(());
+    }
+    let mut st = state.lock();
+    let ptr = st.ptr_size();
+    st.snapshot();
+    let t = find(&mut st, &class)?;
+    t.fields.extend(padding_fields(n));
+    recompact(t, ptr);
+    Ok(())
+}
+
+/// Inserts `n` bytes of Unk padding before field `index` (ReClass "Insert N bytes").
+#[tauri::command]
+pub fn insert_bytes(
+    state: State<'_, Mutex<AppState>>,
+    class: String,
+    index: usize,
+    n: usize,
+) -> Result<(), String> {
+    if n == 0 {
+        return Ok(());
+    }
+    let mut st = state.lock();
+    let ptr = st.ptr_size();
+    st.snapshot();
+    let t = find(&mut st, &class)?;
+    let at = index.min(t.fields.len());
+    for (i, f) in padding_fields(n).into_iter().enumerate() {
+        t.fields.insert(at + i, f);
+    }
+    recompact(t, ptr);
+    Ok(())
+}
+
+/// Removes `n` fields starting at `index` (ReClass "Remove N fields").
+#[tauri::command]
+pub fn remove_fields(
+    state: State<'_, Mutex<AppState>>,
+    class: String,
+    index: usize,
+    n: usize,
+) -> Result<(), String> {
+    let mut st = state.lock();
+    let ptr = st.ptr_size();
+    st.snapshot();
+    let t = find(&mut st, &class)?;
+    if index >= t.fields.len() {
+        return Err("field index out of range".into());
+    }
+    let end = index.saturating_add(n).min(t.fields.len());
+    t.fields.drain(index..end);
+    recompact(t, ptr);
+    Ok(())
+}
+
+/// Converts field `index` to `kind` with ReClass steal/pad resizing (see [`retype_impl`]).
+/// This is the toolbar type-change; unlike [`set_field_kind`] it keeps the layout packed.
+#[tauri::command]
+pub fn retype_field(
+    state: State<'_, Mutex<AppState>>,
+    class: String,
+    index: usize,
+    kind: String,
+    metadata: Option<String>,
+) -> Result<(), String> {
+    let new = FieldKind::from_kind_string(&kind).ok_or_else(|| format!("unknown kind `{kind}`"))?;
+    let mut st = state.lock();
+    let ptr = st.ptr_size();
+    st.snapshot();
+    let t = find(&mut st, &class)?;
+    retype_impl(t, index, new, metadata, ptr)
+}
+
+/// Infers a more specific type for the field at `address` and applies it (ReClass
+/// "Guess type"). Returns the new kind string, or `None` when nothing beats raw bytes
+/// or no process is attached.
+#[tauri::command]
+pub fn guess_type(
+    state: State<'_, Mutex<AppState>>,
+    class: String,
+    index: usize,
+    address: u64,
+) -> Result<Option<String>, String> {
+    let mut st = state.lock();
+    let ptr = st.ptr_size();
+    let Some(target) = st.target.clone() else {
+        return Ok(None);
+    };
+    let bytes = nemclass_sdk::infer::read_window(&target, address as usize);
+    let Some(kind) = nemclass_sdk::infer::infer_kind(&bytes, &target)
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let kind_str = kind.to_kind_string();
+    st.snapshot();
+    let t = find(&mut st, &class)?;
+    retype_impl(t, index, kind, None, ptr)?;
+    Ok(Some(kind_str))
 }
 
 /// The stored base address of a class (0 if unset). This is the single source
