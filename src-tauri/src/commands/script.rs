@@ -5,7 +5,8 @@
 use crate::dto::ScriptResultDto;
 use crate::state::AppState;
 use nemclass_sdk::project::{self, SCRIPTS_DIR};
-use nemclass_sdk::schema::Project;
+use nemclass_sdk::schema::{FieldDef, Project, TypeDef};
+use nemclass_sdk::types::FieldKind;
 use nemclass_scripting::{ClassHost, ScriptEngine, DEFINITIONS};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -34,6 +35,46 @@ impl ClassHost for ScriptHost {
     }
     fn class_address(&self, name: &str) -> Option<usize> {
         self.addrs.lock().unwrap().get(name).copied()
+    }
+}
+
+/// Converts a script-exported class into the contiguous, packed layout the
+/// inspector expects: fields sorted by offset, with the gaps between them filled
+/// by `Unk` padding. `field_at` records absolute offsets in a *sparse* class;
+/// without this, the packed inspector re-packs those offsets away on the first
+/// edit (`recompact`), so the placement a script asked for wouldn't stick.
+fn normalize_contiguous(mut ty: TypeDef, ptr: usize) -> TypeDef {
+    ty.fields.sort_by_key(|f| f.offset);
+    let mut out: Vec<FieldDef> = Vec::with_capacity(ty.fields.len());
+    let mut cur = 0usize;
+    for f in ty.fields {
+        // Fill the gap before this field with the largest Unk chunk that fits.
+        while cur < f.offset {
+            let gap = f.offset - cur;
+            let (kind, sz) = if gap >= 8 {
+                (FieldKind::Unk64, 8)
+            } else if gap >= 4 {
+                (FieldKind::Unk32, 4)
+            } else if gap >= 2 {
+                (FieldKind::Unk16, 2)
+            } else {
+                (FieldKind::Unk8, 1)
+            };
+            out.push(FieldDef {
+                name: String::new(),
+                offset: cur,
+                kind,
+                metadata: None,
+            });
+            cur += sz;
+        }
+        // Keep the field at its declared offset (overlaps, if any, are left as-is).
+        cur = cur.max(f.offset + f.kind.size_with_ptr(ptr));
+        out.push(f);
+    }
+    TypeDef {
+        name: ty.name,
+        fields: out,
     }
 }
 
@@ -77,7 +118,11 @@ pub fn script_run(
             if !project.classes.is_empty() {
                 let mut st = state.lock();
                 st.snapshot();
+                let ptr = st.ptr_size();
                 for ty in project.classes {
+                    // Honor `field_at`'s absolute offsets by padding the class into a
+                    // contiguous layout the inspector won't re-pack out from under.
+                    let ty = normalize_contiguous(ty, ptr);
                     match st.classes.iter().position(|c| c.name == ty.name) {
                         Some(i) => st.classes[i] = ty,
                         None => st.classes.push(ty),
@@ -141,4 +186,37 @@ pub fn script_save(
 #[tauri::command]
 pub fn script_definitions() -> Result<String, String> {
     Ok(DEFINITIONS.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_at_offsets_are_padded_contiguous() {
+        // Mirrors: sge:field_at("EntitySystem", ptr, 0xC0); field_at("PSystem", ptr, 0x90)
+        let ty = TypeDef {
+            name: "SGE".into(),
+            fields: vec![
+                FieldDef { name: "EntitySystem".into(), offset: 0xC0, kind: FieldKind::Ptr, metadata: None },
+                FieldDef { name: "PSystem".into(), offset: 0x90, kind: FieldKind::Ptr, metadata: None },
+            ],
+        };
+
+        let out = normalize_contiguous(ty, 8);
+
+        // The named pointers keep the absolute offsets the script asked for.
+        let ps = out.fields.iter().find(|f| f.name == "PSystem").unwrap();
+        let es = out.fields.iter().find(|f| f.name == "EntitySystem").unwrap();
+        assert_eq!(ps.offset, 0x90);
+        assert_eq!(es.offset, 0xC0);
+
+        // The layout is gap-free: every field starts exactly where the last ended.
+        let mut cur = 0;
+        for f in &out.fields {
+            assert_eq!(f.offset, cur, "gap/overlap at {:#x}", f.offset);
+            cur += f.kind.size_with_ptr(8);
+        }
+        assert_eq!(cur, 0xC8);
+    }
 }
