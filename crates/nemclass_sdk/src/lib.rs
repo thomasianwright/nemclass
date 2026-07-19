@@ -53,8 +53,8 @@ pub use access::{find_what_accesses, AccessBackend, AccessRecord, AccessTracer};
 pub mod disasm;
 #[cfg(feature = "disasm")]
 pub use disasm::{
-    call_targets, disassemble, find_functions, find_strings, memory_map, FlowKind, Insn, MapRegion,
-    RegionKind, StringHit,
+    call_targets, disassemble, disassemble_range, find_functions, find_strings, memory_map,
+    FlowKind, Insn, MapRegion, RegionKind, StringHit,
 };
 
 /// Re-export of the low-level memory crate for advanced callers.

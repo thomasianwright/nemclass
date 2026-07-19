@@ -57,6 +57,14 @@ pub fn disassemble(target: &Target, start: usize, count: usize) -> Vec<Insn> {
     disassemble_bytes(&bytes, start, count)
 }
 
+/// Decodes every instruction in a `byte_len`-byte range starting at `start`
+/// (capped at [`MAX_SCAN`]). Use this to analyze a whole region; use
+/// [`disassemble`] to fetch a fixed number of instructions for a view.
+pub fn disassemble_range(target: &Target, start: usize, byte_len: usize) -> Vec<Insn> {
+    let bytes = target.read_bytes(start, byte_len.min(MAX_SCAN)).unwrap_or_default();
+    disassemble_bytes(&bytes, start, usize::MAX)
+}
+
 /// Decodes up to `count` instructions from `bytes` (whose first byte is at `start`).
 pub fn disassemble_bytes(bytes: &[u8], start: usize, count: usize) -> Vec<Insn> {
     let mut out = Vec::new();
@@ -240,7 +248,7 @@ pub fn find_strings(target: &Target, start: usize, len: usize, min_len: usize) -
     let mut out = Vec::new();
     let mut run_start = 0;
     let mut run: Vec<u8> = Vec::new();
-    let mut flush = |run: &mut Vec<u8>, run_start: usize, out: &mut Vec<StringHit>| {
+    let flush = |run: &mut Vec<u8>, run_start: usize, out: &mut Vec<StringHit>| {
         if run.len() >= min_len {
             out.push(StringHit {
                 addr: start + run_start,
