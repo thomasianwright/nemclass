@@ -60,8 +60,54 @@ use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use frida::{DeviceManager, Frida, ScriptOption, ScriptRuntime};
+use frida::{DeviceManager, Frida, Message, Script, ScriptHandler, ScriptOption, ScriptRuntime, Session};
 use serde_json::{json, Value};
+
+/// Minimal script message handler.
+///
+/// The agent buffers breakpoint hits and we drain them via the `pollBp` RPC, so
+/// non-RPC messages are ignored. But connecting *a* handler is REQUIRED:
+/// `Script::exports.call` delivers its reply through the script's "message"
+/// signal, so without `handle_message` connected every RPC blocks forever on its
+/// internal reply channel. A ZST handler also makes the frida crate's non-RPC
+/// dispatch path (which reinterprets the handler pointer) a harmless no-op.
+struct RpcHandler;
+
+impl ScriptHandler for RpcHandler {
+    fn on_message(&mut self, _message: Message, _data: Option<Vec<u8>>) {}
+}
+
+// GLib main-loop functions from the statically-linked frida devkit. A running
+// GMainLoop on frida's main context is REQUIRED for async RPC replies:
+// `Script::exports.call` posts the request asynchronously and then blocks on its
+// reply channel; the reply is only delivered while a loop iterates the context.
+// The devkit bundles a private glib whose symbols are prefixed `_frida_` to avoid
+// clashing with a system glib, so we link against the prefixed names.
+extern "C" {
+    fn frida_get_main_context() -> *mut std::ffi::c_void;
+    #[link_name = "_frida_g_main_loop_new"]
+    fn g_main_loop_new(context: *mut std::ffi::c_void, is_running: i32) -> *mut std::ffi::c_void;
+    #[link_name = "_frida_g_main_loop_run"]
+    fn g_main_loop_run(l: *mut std::ffi::c_void);
+    #[link_name = "_frida_g_main_loop_quit"]
+    fn g_main_loop_quit(l: *mut std::ffi::c_void);
+    #[link_name = "_frida_g_main_loop_unref"]
+    fn g_main_loop_unref(l: *mut std::ffi::c_void);
+}
+
+/// A `*mut GMainLoop`, sendable to the loop-runner thread. The pointer is only
+/// used with the thread-safe `g_main_loop_*` calls.
+#[derive(Clone, Copy)]
+struct GLoop(*mut std::ffi::c_void);
+unsafe impl Send for GLoop {}
+
+impl GLoop {
+    /// Runs the loop (blocks until quit). Takes `self` by value so a spawning
+    /// closure captures the whole `Send` wrapper, not the bare pointer field.
+    fn run(self) {
+        unsafe { g_main_loop_run(self.0) }
+    }
+}
 
 /// The injected agent (QuickJS). Exposes `rpc.exports` for memory/thread ops and
 /// `Interceptor`-based breakpoints.
@@ -94,35 +140,53 @@ function ctxToRegs(ctx) {
     return out;
 }
 
+// Every export is wrapped in try/catch and returns a sentinel on failure rather
+// than throwing: a thrown error makes frida send an *error*-form RPC reply (a
+// 7-element array) that the frida crate's deserializer can't parse, so the reply
+// is never routed to the call() channel and the caller hangs. Returning a normal
+// value keeps every reply in the parseable 4-element "ok" form.
+//
+// Uses the modern NativePointer methods (`ptr(x).readByteArray(len)`); the old
+// `Memory.readByteArray(ptr, len)` was removed from frida-gum.
 rpc.exports = {
     readMem: function (addrStr, len) {
-        const buf = Memory.readByteArray(ptr(addrStr), len);
-        return Array.from(new Uint8Array(buf));
+        try {
+            const buf = ptr(addrStr).readByteArray(len);
+            return buf ? Array.from(new Uint8Array(buf)) : null;
+        } catch (e) { return null; }
     },
     writeMem: function (addrStr, bytes) {
-        Memory.writeByteArray(ptr(addrStr), bytes);
-        return bytes.length;
+        try {
+            ptr(addrStr).writeByteArray(bytes);
+            return bytes.length;
+        } catch (e) { return 0; }
     },
     enumThreads: function () {
-        return Process.enumerateThreads().map(function (t) { return t.id; });
+        try {
+            return Process.enumerateThreads().map(function (t) { return t.id; });
+        } catch (e) { return []; }
     },
     addBp: function (addrStr) {
-        const id = nextId++;
-        listeners[id] = Interceptor.attach(ptr(addrStr), {
-            onEnter: function (args) {
-                hits.push({
-                    id: id,
-                    addr: addrStr,
-                    tid: this.threadId,
-                    ctx: ctxToRegs(this.context)
-                });
-            }
-        });
-        return id;
+        try {
+            const id = nextId++;
+            listeners[id] = Interceptor.attach(ptr(addrStr), {
+                onEnter: function (args) {
+                    hits.push({
+                        id: id,
+                        addr: addrStr,
+                        tid: this.threadId,
+                        ctx: ctxToRegs(this.context)
+                    });
+                }
+            });
+            return id;
+        } catch (e) { return null; }
     },
     delBp: function (id) {
-        const l = listeners[id];
-        if (l) { l.detach(); delete listeners[id]; }
+        try {
+            const l = listeners[id];
+            if (l) { l.detach(); delete listeners[id]; }
+        } catch (e) {}
         return true;
     },
     pollBp: function () {
@@ -220,9 +284,12 @@ fn owner_thread(
             return;
         }
     };
-    let mut opts = ScriptOption::new()
-        .set_name("nemclass-agent")
-        .set_runtime(ScriptRuntime::QJS);
+    // NB: `ScriptOption::set_name` in frida 0.17.2 passes a non-NUL-terminated
+    // `&str` to the C API (`name.as_ptr()`), so frida reads past the name into
+    // adjacent memory and the resulting D-Bus message fails to decode
+    // (ScriptCreationError). We don't need a custom name — omit it and let frida
+    // auto-generate one.
+    let mut opts = ScriptOption::new().set_runtime(ScriptRuntime::QJS);
     let mut script = match session.create_script(AGENT_SRC, &mut opts) {
         Ok(s) => s,
         Err(e) => {
@@ -230,11 +297,29 @@ fn owner_thread(
             return;
         }
     };
+    // Connect the "message" signal BEFORE using RPC — `exports.call` routes its
+    // reply through this handler, so without it every RPC call hangs.
+    if let Err(e) = script.handle_message(RpcHandler) {
+        let _ = ready.send(Err(backend(format!("handle_message: {e:?}"))));
+        return;
+    }
     if let Err(e) = script.load() {
         let _ = ready.send(Err(backend(format!("script.load: {e:?}"))));
         return;
     }
+    // Start a GMainLoop on frida's main context on its own thread so async RPC
+    // replies dispatch while `exports.call` blocks. Only start it AFTER the
+    // `_sync` setup above (which ran their own temporary loops); a persistent
+    // loop must not iterate the context concurrently with a `_sync` call.
+    let ctx = unsafe { frida_get_main_context() };
+    let gloop = GLoop(unsafe { g_main_loop_new(ctx, 0) });
+    let mut loop_thread = std::thread::Builder::new()
+        .name(format!("frida-loop-{pid}"))
+        .spawn(move || gloop.run())
+        .ok();
+
     if ready.send(Ok(())).is_err() {
+        let _ = frida_teardown(gloop, &script, &session, &mut loop_thread);
         return; // caller gave up before we finished attaching
     }
 
@@ -249,15 +334,35 @@ fn owner_thread(
                 let _ = reply.send(res);
             }
             Cmd::Detach { reply } => {
-                let _ = script.unload();
-                let res = session
-                    .detach()
-                    .map_err(|e| backend(format!("session.detach: {e:?}")));
+                let res = frida_teardown(gloop, &script, &session, &mut loop_thread);
                 let _ = reply.send(res);
                 return;
             }
         }
     }
+    // Sender dropped without an explicit Detach.
+    let _ = frida_teardown(gloop, &script, &session, &mut loop_thread);
+}
+
+/// Stops the RPC main loop (and joins its thread) before unloading the agent and
+/// detaching the session — the `_sync` teardown must not run while the loop
+/// iterates frida's main context.
+fn frida_teardown(
+    gloop: GLoop,
+    script: &Script,
+    session: &Session,
+    loop_thread: &mut Option<JoinHandle<()>>,
+) -> Result<()> {
+    unsafe { g_main_loop_quit(gloop.0) };
+    if let Some(t) = loop_thread.take() {
+        let _ = t.join();
+    }
+    let _ = script.unload();
+    let res = session
+        .detach()
+        .map_err(|e| backend(format!("session.detach: {e:?}")));
+    unsafe { g_main_loop_unref(gloop.0) };
+    res
 }
 
 impl FridaDebugger {

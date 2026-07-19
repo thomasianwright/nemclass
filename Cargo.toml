@@ -19,7 +19,7 @@ nemclass_scripting = { path = "crates/nemclass_scripting" }
 
 [dependencies]
 nemclass_memory = { workspace = true, features = ["external"] }
-nemclass_sdk = { workspace = true, features = ["disasm", "libiht", "intel-pt"] }
+nemclass_sdk = { workspace = true, features = ["disasm", "libiht", "intel-pt", "frida"] }
 nemclass_scripting = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 parking_lot = "0.12"
