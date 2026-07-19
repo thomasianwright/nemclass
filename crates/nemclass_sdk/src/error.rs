@@ -42,6 +42,37 @@ pub enum SdkError {
     /// A filesystem operation on a project folder failed.
     #[error("io error: {0}")]
     Io(String),
+
+    /// A debugger control operation failed (attach, breakpoint, wait, ...).
+    #[error("debug error: {0}")]
+    Debug(String),
+
+    /// A raw `ptrace` request failed.
+    #[error("ptrace {op} failed (errno {errno})")]
+    Ptrace {
+        /// The ptrace request that failed (e.g. `"SEIZE"`, `"GETREGS"`).
+        op: &'static str,
+        /// The OS error number.
+        errno: i32,
+    },
+
+    /// A memory scan failed to complete.
+    #[error("scan error: {0}")]
+    Scan(String),
+
+    /// A pluggable backend reported an internal error.
+    #[error("{name} backend error: {reason}")]
+    Backend {
+        /// Backend name (e.g. `"frida"`, `"intel-pt"`, `"libiht"`).
+        name: &'static str,
+        /// Human-readable failure reason.
+        reason: String,
+    },
+
+    /// The requested backend/feature is not compiled in, or is unavailable on
+    /// this host at runtime (missing kernel module, no PT support, ...).
+    #[error("unsupported: {0}")]
+    Unsupported(&'static str),
 }
 
 impl From<std::io::Error> for SdkError {

@@ -18,6 +18,8 @@ pub const MANIFEST_FILE: &str = "project.nemproj";
 pub const CLASSES_DIR: &str = "classes";
 /// The subfolder holding Lua scripts.
 pub const SCRIPTS_DIR: &str = "scripts";
+/// The subfolder holding cheat tables (`*.ron`, see [`crate::table`]).
+pub const TABLES_DIR: &str = "tables";
 
 /// Optional auto-attach configuration. When present in the manifest,
 /// `process_name` is required; `module_name` is an optional filter that selects,
@@ -64,6 +66,8 @@ pub struct LoadedProject {
     pub classes: Project,
     /// Paths of `scripts/*.lua`, sorted.
     pub scripts: Vec<PathBuf>,
+    /// Paths of `tables/*.ron` cheat tables, sorted.
+    pub tables: Vec<PathBuf>,
 }
 
 // --- On-disk TOML representation of a class -------------------------------
@@ -166,12 +170,14 @@ pub fn load_dir(dir: &Path) -> Result<LoadedProject> {
     }
 
     let scripts = list_scripts(dir);
+    let tables = list_tables(dir);
 
     Ok(LoadedProject {
         dir: dir.to_owned(),
         manifest,
         classes: Project::from_types(classes),
         scripts,
+        tables,
     })
 }
 
@@ -195,6 +201,20 @@ pub fn list_scripts(dir: &Path) -> Vec<PathBuf> {
     scripts
 }
 
+/// Lists `tables/*.ron` cheat tables under `dir`, sorted.
+pub fn list_tables(dir: &Path) -> Vec<PathBuf> {
+    let tables_dir = dir.join(TABLES_DIR);
+    let mut tables: Vec<PathBuf> = match fs::read_dir(&tables_dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "ron"))
+            .collect(),
+        Err(_) => vec![],
+    };
+    tables.sort();
+    tables
+}
+
 /// Writes `manifest` + `classes` into `dir`, creating the folder structure if
 /// needed. Class TOML files no longer backed by a class are removed, so the
 /// folder mirrors the current set of classes.
@@ -202,6 +222,7 @@ pub fn save_dir(dir: &Path, manifest: &Manifest, classes: &Project) -> Result<()
     let classes_dir = dir.join(CLASSES_DIR);
     fs::create_dir_all(&classes_dir)?;
     fs::create_dir_all(dir.join(SCRIPTS_DIR))?;
+    fs::create_dir_all(dir.join(TABLES_DIR))?;
 
     write_manifest(dir, manifest)?;
 
@@ -240,6 +261,7 @@ pub fn write_manifest(dir: &Path, manifest: &Manifest) -> Result<()> {
 pub fn create_dir(dir: &Path, name: &str) -> Result<LoadedProject> {
     fs::create_dir_all(dir.join(CLASSES_DIR))?;
     fs::create_dir_all(dir.join(SCRIPTS_DIR))?;
+    fs::create_dir_all(dir.join(TABLES_DIR))?;
     let manifest = Manifest::new(name);
     write_manifest(dir, &manifest)?;
     Ok(LoadedProject {
@@ -247,6 +269,7 @@ pub fn create_dir(dir: &Path, name: &str) -> Result<LoadedProject> {
         manifest,
         classes: Project::new(),
         scripts: vec![],
+        tables: vec![],
     })
 }
 

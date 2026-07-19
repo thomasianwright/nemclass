@@ -24,6 +24,21 @@ pub struct ProcessInfo {
     pub parent_id: u32,
 }
 
+/// A span of the target's address space with its read/write access, a simplified
+/// owned view of the backend's memory map used by the value
+/// [`Scanner`](crate::scan::Scanner).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Region {
+    /// Start address (inclusive).
+    pub from: usize,
+    /// End address (exclusive).
+    pub to: usize,
+    /// Whether the span is readable.
+    pub read: bool,
+    /// Whether the span is writable.
+    pub write: bool,
+}
+
 /// Base address, size and name of a loaded module.
 #[derive(Debug, Clone)]
 pub struct ModuleInfo {
@@ -357,5 +372,45 @@ impl Target {
     pub fn scan_module<M: Matcher>(&self, pat: M, module: &str) -> Result<Vec<usize>> {
         let m = self.module(module)?;
         Ok(self.scan_range(pat, m.base, m.size))
+    }
+
+    /// The target's memory regions (native targets only; empty for managed
+    /// plugins, which don't expose a map). Used by the value
+    /// [`Scanner`](crate::scan::Scanner) to enumerate and protection-filter
+    /// candidate memory before a first scan.
+    pub fn regions(&self) -> Vec<Region> {
+        match &self.backend {
+            Backend::Native { maps, .. } => maps
+                .iter()
+                .map(|m| Region {
+                    from: m.from,
+                    to: m.to,
+                    read: m.prot.read(),
+                    write: m.prot.write(),
+                })
+                .collect(),
+            Backend::Managed(_) => Vec::new(),
+        }
+    }
+
+    /// Re-reads a scatter list of `(address, buffer)` pairs as efficiently as the
+    /// backend allows — a single `process_vm_readv` batch for native targets —
+    /// returning the number of pairs the backend reports as read. Used by
+    /// [`Scanner::next_scan`](crate::scan::Scanner::next_scan) to refresh many
+    /// candidate addresses in one syscall. A failed pair does not abort the rest,
+    /// so callers should treat stale buffer contents defensively.
+    pub fn read_scatter(&self, regions: &mut [(usize, &mut [u8])]) -> usize {
+        match &self.backend {
+            Backend::Native { proc, .. } => proc.read_buf_batch(regions).unwrap_or(0),
+            Backend::Managed(ext) => {
+                let mut ok = 0;
+                for (addr, buf) in regions.iter_mut() {
+                    if (ext.read)(*addr, buf.as_mut_ptr(), buf.len()) == 0 {
+                        ok += 1;
+                    }
+                }
+                ok
+            }
+        }
     }
 }

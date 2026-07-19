@@ -35,5 +35,19 @@ pub use target::Target;
 
 pub mod infer;
 
+pub mod debug;
+pub use debug::{
+    BackendKind, BpId, DebugEvent, Debugger, Registers, StopReason, ThreadId, WatchKind, WatchSize,
+};
+
+pub mod scan;
+pub use scan::{ScanCompare, ScanConfig, ScanResults, ScanType, ScanValue, Scanner};
+
+pub mod table;
+pub use table::{CheatEntry, CheatTable, Freezer};
+
+pub mod access;
+pub use access::{find_what_accesses, AccessBackend, AccessRecord, AccessTracer};
+
 /// Re-export of the low-level memory crate for advanced callers.
 pub use nemclass_memory;
