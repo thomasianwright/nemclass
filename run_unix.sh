@@ -23,4 +23,4 @@ sudo setcap cap_sys_ptrace+ep "$BIN"
 
 # 4. Run as the normal user. Force the X11 backend if a nested Wayland
 #    compositor rejects the webview ("Gdk-Message: Error 71").
-GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 exec "$BIN"
+#GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 exec "$BIN"
